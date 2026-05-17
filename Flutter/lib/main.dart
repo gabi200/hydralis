@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-
 import 'screens/dashboard_screen.dart';
 
 void main() {
-  runApp(const FloodGuardApp());
+  runApp(const HydralisApp());
 }
 
-class FloodGuardApp extends StatelessWidget {
-  const FloodGuardApp({super.key});
+class HydralisApp extends StatelessWidget {
+  const HydralisApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'FloodGuard',
+      title: 'Hydralis',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
