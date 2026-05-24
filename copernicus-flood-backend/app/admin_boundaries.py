@@ -6,8 +6,10 @@ import httpx
 
 from app.config import Settings
 from app.exceptions import ExternalServiceError
+from app.logging_setup import get_pipeline_logger, log_step
 
 DEFAULT_ADMIN_LEVELS = ("2", "4", "5", "6")
+_log = get_pipeline_logger("admin_boundaries")
 
 
 async def fetch_admin_boundaries(
@@ -19,6 +21,12 @@ async def fetch_admin_boundaries(
     admin_levels: tuple[str, ...] = DEFAULT_ADMIN_LEVELS,
     settings: Settings,
 ) -> dict[str, Any]:
+    log_step(
+        _log,
+        "start",
+        bbox=[west, south, east, north],
+        admin_levels=",".join(admin_levels),
+    )
     query = build_overpass_query(
         west=west,
         south=south,
@@ -28,6 +36,7 @@ async def fetch_admin_boundaries(
     )
     try:
         async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+            log_step(_log, "overpass_request", url=settings.overpass_url)
             response = await client.post(
                 settings.overpass_url,
                 data={"data": query},
@@ -37,23 +46,28 @@ async def fetch_admin_boundaries(
                 },
             )
     except httpx.TimeoutException as exc:
+        log_step(_log, "overpass_timeout")
         raise ExternalServiceError("Administrative boundary request timed out") from exc
     except httpx.HTTPError as exc:
+        log_step(_log, "overpass_error", error=str(exc))
         raise ExternalServiceError(
             "Administrative boundary request failed",
             details={"error": str(exc)},
         ) from exc
 
     if response.status_code >= 400:
+        log_step(_log, "overpass_http_error", status=response.status_code)
         raise ExternalServiceError(
             "Administrative boundary API returned an error",
             details={"status_code": response.status_code, "body": response.text[:1000]},
         )
-    return overpass_to_geojson(
+    geojson = overpass_to_geojson(
         response.json(),
         label_lon=(west + east) / 2,
         label_lat=(south + north) / 2,
     )
+    log_step(_log, "done", features=len(geojson.get("features", [])))
+    return geojson
 
 
 def build_overpass_query(

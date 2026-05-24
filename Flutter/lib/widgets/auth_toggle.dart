@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme.dart';
 
 class AuthToggle extends StatelessWidget {
   final bool isLogin;
@@ -14,57 +15,78 @@ class AuthToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E0E0)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: onLoginPressed,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: isLogin ? const Color(0xFF000B2B) : Colors.transparent,
-                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(7)),
-                ),
-                child: Center(
-                  child: Text(
-                    'Login',
-                    style: TextStyle(
-                      color: isLogin ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.w600,
-                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        return Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppColors.inputFill,
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            border: Border.all(color: AppColors.border, width: 1),
+          ),
+          child: Stack(
+            children: [
+              AnimatedAlign(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment:
+                    isLogin ? Alignment.centerLeft : Alignment.centerRight,
+                child: Container(
+                  width: (width - 12) / 2,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    gradient: AppGradients.ocean,
+                    borderRadius: BorderRadius.circular(AppRadii.pill),
+                    boxShadow: AppShadows.glow,
                   ),
                 ),
               ),
-            ),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: onSignUpPressed,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: !isLogin ? const Color(0xFF000B2B) : Colors.transparent,
-                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(7)),
-                ),
-                child: Center(
-                  child: Text(
-                    'Sign Up',
-                    style: TextStyle(
-                      color: !isLogin ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.w600,
-                    ),
+              Row(
+                children: [
+                  _segment(
+                    label: 'Login',
+                    active: isLogin,
+                    onTap: onLoginPressed,
                   ),
-                ),
+                  _segment(
+                    label: 'Sign Up',
+                    active: !isLogin,
+                    onTap: onSignUpPressed,
+                  ),
+                ],
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _segment({
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          height: 40,
+          child: Center(
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 180),
+              style: TextStyle(
+                color: active ? Colors.white : AppColors.inkMuted,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                letterSpacing: 0.3,
+              ),
+              child: Text(label),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

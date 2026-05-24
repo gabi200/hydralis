@@ -9,8 +9,11 @@ from app.config import Settings
 from app.exceptions import ExternalServiceError, MissingCredentialsError, NoSceneFoundError
 from app.external_response_logging import log_external_response
 from app.geo import bbox_from_area
+from app.logging_setup import get_pipeline_logger, log_step
 from app.models import LatestSceneRequest, SatelliteScene
 from app.time_utils import iso_z, parse_datetime, utcnow
+
+_log = get_pipeline_logger("sentinel_hub")
 
 
 class SentinelHubClient:
@@ -40,6 +43,7 @@ class SentinelHubClient:
             and self._token_expires_at is not None
             and self._token_expires_at > utcnow() + timedelta(seconds=60)
         ):
+            log_step(_log, "token_cached")
             return self._token
 
         if not self.settings.cdse_client_id or not self.settings.cdse_client_secret:
@@ -47,6 +51,7 @@ class SentinelHubClient:
                 "Set CDSE_CLIENT_ID and CDSE_CLIENT_SECRET to call Copernicus Sentinel Hub APIs."
             )
 
+        log_step(_log, "token_request")
         response = await self._send(
             "POST",
             self.settings.sentinel_hub_token_url,
@@ -65,12 +70,19 @@ class SentinelHubClient:
         expires_in = int(payload.get("expires_in", 300))
         self._token = token
         self._token_expires_at = utcnow() + timedelta(seconds=expires_in)
+        log_step(_log, "token_acquired", expires_in=expires_in)
         return token
 
     async def catalog_latest(self, request: LatestSceneRequest) -> list[SatelliteScene]:
         bbox = bbox_from_area(request.area)
         end = utcnow()
         start = end - timedelta(days=request.lookback_days)
+        log_step(
+            _log,
+            "catalog_search",
+            lookback_days=request.lookback_days,
+            bbox=bbox.as_list(),
+        )
         payload: dict[str, Any] = {
             "bbox": bbox.as_list(),
             "datetime": f"{iso_z(start)}/{iso_z(end)}",
@@ -87,16 +99,22 @@ class SentinelHubClient:
         scenes = [scene for scene in scenes if scene.datetime is not None]
         scenes.sort(key=lambda scene: scene.datetime, reverse=True)
         if not scenes:
+            log_step(_log, "catalog_no_scenes", lookback_days=request.lookback_days)
             raise NoSceneFoundError(
                 "No Sentinel-1 GRD scenes found for the requested area and lookback window.",
                 details={"lookback_days": request.lookback_days, "bbox": bbox.as_list()},
             )
+        log_step(_log, "catalog_found", scenes=len(scenes), top_id=scenes[0].id)
         return scenes
 
     async def statistics(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self.post_json("/statistics/v1", payload)
+        log_step(_log, "statistics_request")
+        result = await self.post_json("/statistics/v1", payload)
+        log_step(_log, "statistics_response", intervals=len(result.get("data", [])))
+        return result
 
     async def process_image(self, payload: dict[str, Any]) -> bytes:
+        log_step(_log, "process_request")
         token = await self.get_access_token()
         response = await self._send(
             "POST",
@@ -108,6 +126,7 @@ class SentinelHubClient:
                 "Accept": "image/png",
             },
         )
+        log_step(_log, "process_response", bytes=len(response.content))
         return response.content
 
     async def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:

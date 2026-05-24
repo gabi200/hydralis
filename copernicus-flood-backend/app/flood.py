@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from app.exceptions import NoStatisticsError
 from app.geo import bounds_payload_from_area, resolution_degrees_for_area
+from app.logging_setup import get_pipeline_logger, log_step
 from app.models import (
     FloodHeatmapRequest,
     FloodDetectionRequest,
@@ -16,6 +17,9 @@ from app.models import (
     WaterStats,
 )
 from app.time_utils import iso_z
+
+_detect_log = get_pipeline_logger("flood.detect")
+_heatmap_log = get_pipeline_logger("flood.heatmap")
 
 METHOD = (
     "Sentinel-1 GRD VV backscatter water proxy using terrain-corrected gamma0, "
@@ -39,6 +43,15 @@ async def detect_flood(
     request: FloodDetectionRequest,
     client: FloodDataClient,
 ) -> FloodDetectionResponse:
+    log_step(
+        _detect_log,
+        "start",
+        lookback_days=request.lookback_days,
+        acquisition_mode=request.acquisition_mode,
+        polarization=request.polarization,
+        baseline_enabled=request.baseline.enabled,
+    )
+    log_step(_detect_log, "catalog_search")
     latest_scene = (
         await client.catalog_latest(
             LatestSceneRequest(
@@ -51,6 +64,12 @@ async def detect_flood(
             )
         )
     )[0]
+    log_step(
+        _detect_log,
+        "scene_selected",
+        scene_id=latest_scene.id,
+        scene_datetime=latest_scene.datetime.isoformat(),
+    )
 
     current_from, current_to = day_bounds(latest_scene.datetime)
     current_payload = build_statistics_payload(
@@ -60,7 +79,6 @@ async def detect_flood(
         aggregation_interval_days=1,
     )
 
-    # Build baseline payload ahead of time so we can fire both requests concurrently.
     baseline_payload: dict[str, Any] | None = None
     if request.baseline.enabled:
         baseline_to = latest_scene.datetime - timedelta(days=request.baseline.gap_days)
@@ -73,7 +91,12 @@ async def detect_flood(
                 aggregation_interval_days=request.baseline.interval_days,
             )
 
-    # Fetch current stats and (optional) baseline stats concurrently.
+    log_step(
+        _detect_log,
+        "fetch_statistics",
+        current=True,
+        baseline=baseline_payload is not None,
+    )
     if baseline_payload is not None:
         current_response, baseline_response = await asyncio.gather(
             client.statistics(current_payload),
@@ -85,11 +108,18 @@ async def detect_flood(
 
     current_stats = extract_water_stats(current_response, resolution_meters=request.resolution_meters)
     if not current_stats:
+        log_step(_detect_log, "no_statistics", scene_id=latest_scene.id)
         raise NoStatisticsError(
             "No valid Sentinel-1 statistics were returned for the latest scene.",
             details={"scene_id": latest_scene.id, "scene_datetime": latest_scene.datetime.isoformat()},
         )
     current = current_stats[-1]
+    log_step(
+        _detect_log,
+        "current_stats",
+        water_fraction=current.water_fraction,
+        valid_pixels=current.valid_pixel_count,
+    )
 
     warnings: list[str] = []
     baseline_fraction: float | None = None
@@ -100,6 +130,12 @@ async def detect_flood(
         usable = [stat for stat in baseline_stats if stat.valid_pixel_count >= request.min_valid_pixels]
         baseline_intervals_used = len(usable)
         baseline_fraction = weighted_water_fraction(usable)
+        log_step(
+            _detect_log,
+            "baseline_stats",
+            intervals_used=baseline_intervals_used,
+            water_fraction=baseline_fraction if baseline_fraction is not None else "none",
+        )
 
     if request.baseline.enabled and baseline_fraction is None:
         warnings.append("No usable baseline statistics were available; using latest water fraction only.")
@@ -119,6 +155,13 @@ async def detect_flood(
         current=current,
         latest_scene=latest_scene,
         baseline_intervals_used=baseline_intervals_used,
+    )
+    log_step(
+        _detect_log,
+        "done",
+        status=status,
+        confidence=confidence,
+        change=water_fraction_change if water_fraction_change is not None else "none",
     )
 
     return FloodDetectionResponse(
@@ -196,6 +239,14 @@ async def build_heatmap_png(
     request: FloodHeatmapRequest,
     client: FloodDataClient,
 ) -> tuple[bytes, SatelliteScene]:
+    log_step(
+        _heatmap_log,
+        "start",
+        lookback_days=request.lookback_days,
+        size=f"{request.width}x{request.height}",
+        threshold_db=request.water_threshold_db,
+    )
+    log_step(_heatmap_log, "catalog_search")
     latest_scene = (
         await client.catalog_latest(
             LatestSceneRequest(
@@ -208,13 +259,17 @@ async def build_heatmap_png(
             )
         )
     )[0]
+    log_step(_heatmap_log, "scene_selected", scene_id=latest_scene.id)
     time_from, time_to = day_bounds(latest_scene.datetime)
     payload = build_heatmap_payload(
         request=request,
         time_from=time_from,
         time_to=time_to,
     )
-    return await client.process_image(payload), latest_scene
+    log_step(_heatmap_log, "render_image")
+    image = await client.process_image(payload)
+    log_step(_heatmap_log, "done", bytes=len(image))
+    return image, latest_scene
 
 
 def build_heatmap_payload(

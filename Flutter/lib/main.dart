@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
 import 'screens/dashboard_screen.dart';
+import 'theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(AppTheme.overlayLight);
   runApp(const HydralisApp());
 }
 
@@ -14,15 +17,7 @@ class HydralisApp extends StatelessWidget {
     return MaterialApp(
       title: 'Hydralis',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2C74FF),
-          primary: const Color(0xFF2C74FF),
-        ),
-        textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
-        scaffoldBackgroundColor: Colors.white,
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light,
       home: const DashboardScreen(),
     );
   }

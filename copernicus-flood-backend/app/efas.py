@@ -15,6 +15,9 @@ from app.config import Settings
 from app.exceptions import ExternalServiceError
 from app.external_response_logging import log_external_response
 from app.geo import bbox_from_center
+from app.logging_setup import get_pipeline_logger, log_step
+
+_log = get_pipeline_logger("efas")
 
 EFAS_FORECAST_LAYERS = [
     {
@@ -86,6 +89,7 @@ class EfasMapRequest:
 
 
 async def get_efas_layers(settings: Settings) -> dict[str, Any]:
+    log_step(_log, "layers.start", token=bool(settings.efas_wms_token))
     capabilities = await _wms_get(
         settings,
         {
@@ -103,6 +107,12 @@ async def get_efas_layers(settings: Settings) -> dict[str, Any]:
         }
         for layer in EFAS_FORECAST_LAYERS
     ]
+    log_step(
+        _log,
+        "layers.done",
+        parsed=len(parsed_layers),
+        available=sum(1 for layer in useful_layers if layer["available"]),
+    )
     return {
         "service": "EFAS WMS",
         "realtime_access": "restricted_to_authorised_efas_partners",
@@ -123,6 +133,14 @@ async def get_location_warnings(
     settings: Settings,
 ) -> dict[str, Any]:
     bbox = bbox_from_center(latitude, longitude, radius_meters)
+    log_step(
+        _log,
+        "warnings.start",
+        lat=latitude,
+        lon=longitude,
+        radius_m=radius_meters,
+        layers=len(EFAS_FORECAST_LAYERS),
+    )
 
     async def fetch_layer(layer: dict[str, Any]) -> dict[str, Any]:
         info = await get_feature_info(
@@ -146,6 +164,8 @@ async def get_location_warnings(
         *[fetch_layer(layer) for layer in EFAS_FORECAST_LAYERS],
         return_exceptions=False,
     )
+    signals = sum(1 for layer in layer_results if layer.get("has_signal"))
+    log_step(_log, "warnings.done", signals=signals, layers=len(layer_results))
     return {
         "location": {"latitude": latitude, "longitude": longitude, "radius_meters": radius_meters},
         "bbox": bbox.as_list(),
@@ -160,6 +180,13 @@ async def get_location_warnings(
 
 
 async def get_map_png(request: EfasMapRequest, settings: Settings) -> bytes:
+    log_step(
+        _log,
+        "map.start",
+        layer=request.layer,
+        size=f"{request.width}x{request.height}",
+        time=request.time or "latest",
+    )
     response = await _wms_get(
         settings,
         build_get_map_params(request),
@@ -167,10 +194,12 @@ async def get_map_png(request: EfasMapRequest, settings: Settings) -> bytes:
     )
     content_type = response.headers.get("content-type", "")
     if "image" not in content_type:
+        log_step(_log, "map.not_image", content_type=content_type)
         raise ExternalServiceError(
             "EFAS WMS did not return an image",
             details={"content_type": content_type, "body": response.text[:1000]},
         )
+    log_step(_log, "map.done", bytes=len(response.content))
     return response.content
 
 

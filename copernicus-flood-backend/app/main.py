@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import time
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.admin_boundaries import DEFAULT_ADMIN_LEVELS, fetch_admin_boundaries
 from app.config import Settings, get_settings
@@ -14,6 +18,7 @@ from app.efas import EfasMapRequest, get_efas_layers, get_location_warnings, get
 from app.exceptions import AppError
 from app.flood import build_heatmap_png, detect_flood
 from app.hydralis import router as hydralis_router
+from app.logging_setup import REQUEST_LOGGER_NAME, configure_logging
 from app.map_page import MAP_HTML
 from app.mobile import router as mobile_router
 from app.models import (
@@ -28,12 +33,24 @@ from app.models import (
 from app.sentinel_hub import SentinelHubClient
 
 settings = get_settings()
+request_logger = logging.getLogger(REQUEST_LOGGER_NAME)
+startup_logger = logging.getLogger("hydralis.startup")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    configure_logging()
+    startup_logger.info(
+        "startup app=%s env=%s cors=%s creds=%s",
+        settings.app_name,
+        settings.environment,
+        ",".join(settings.cors_origins) or "<none>",
+        bool(settings.cdse_client_id and settings.cdse_client_secret),
+    )
     initialize_database(settings)
+    startup_logger.info("database initialized")
     yield
+    startup_logger.info("shutdown complete")
 
 
 app = FastAPI(
@@ -43,6 +60,45 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = uuid.uuid4().hex[:8]
+        start = time.perf_counter()
+        client = request.client.host if request.client else "-"
+        request_logger.info(
+            "→ %s %s id=%s client=%s",
+            request.method,
+            request.url.path,
+            request_id,
+            client,
+        )
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            request_logger.exception(
+                "✗ %s %s id=%s elapsed_ms=%.1f error=%s",
+                request.method,
+                request.url.path,
+                request_id,
+                elapsed_ms,
+                exc,
+            )
+            raise
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        request_logger.info(
+            "← %s %s id=%s status=%s elapsed_ms=%.1f",
+            request.method,
+            request.url.path,
+            request_id,
+            response.status_code,
+            elapsed_ms,
+        )
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),

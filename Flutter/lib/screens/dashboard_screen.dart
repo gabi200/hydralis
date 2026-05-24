@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/backend_service.dart';
+import '../theme.dart';
 import 'alert_screen.dart';
 import 'profile_screen.dart';
 
@@ -415,42 +416,855 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'Emergency': Icons.campaign_outlined,
   };
 
+  // ---------------------------------------------------------------------------
+  // UI helpers (visual only — no business logic)
+  // ---------------------------------------------------------------------------
+
+  LinearGradient _gradientForStatus(String status) {
+    switch (status) {
+      case 'Safe':
+        return AppGradients.safe;
+      case 'Monitor':
+        return AppGradients.warning;
+      case 'Need Help':
+        return const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFFB923C), Color(0xFFEA580C)],
+        );
+      case 'Emergency':
+        return AppGradients.danger;
+      default:
+        return AppGradients.ocean;
+    }
+  }
+
+  String _statusSubtitle(String status) {
+    switch (status) {
+      case 'Safe':
+        return 'All systems normal';
+      case 'Monitor':
+        return 'Stay alert · conditions changing';
+      case 'Need Help':
+        return 'Assistance requested';
+      case 'Emergency':
+        return 'SOS active · dispatcher notified';
+      default:
+        return 'Status unknown';
+    }
+  }
+
+  Color _copernicusColor(String risk) {
+    switch (risk) {
+      case 'HIGH RISK':
+        return AppColors.emergencyRed;
+      case 'MEDIUM RISK':
+        return AppColors.needHelpOrange;
+      case 'LOW RISK':
+        return AppColors.safeGreen;
+      default:
+        return AppColors.inkSubtle;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    Color activeColor = _statusColors[_currentStatus]!;
-    IconData activeIcon = _statusIcons[_currentStatus]!;
-
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text(
-          'Hydralis',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded, color: AppColors.ink),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                gradient: AppGradients.ocean,
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+                boxShadow: AppShadows.soft,
+              ),
+              child: const Icon(
+                Icons.water_drop_rounded,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Text('Hydralis', style: AppTextStyles.titleLG),
+          ],
         ),
         centerTitle: true,
         actions: [
-          IconButton(icon: const Icon(Icons.error_outline), onPressed: () {}),
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.sm),
+            child: IconButton(
+              icon: const Icon(
+                Icons.notifications_none_rounded,
+                color: AppColors.ink,
+              ),
+              onPressed: () {},
+            ),
+          ),
         ],
       ),
       drawer: _buildDrawer(context),
-      body: Column(
+      body: Stack(
         children: [
-          // Status Banner
+          // Sky-tinted gradient backdrop behind the AppBar
           Container(
-            color: activeColor,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            height: 220,
+            decoration: const BoxDecoration(gradient: AppGradients.skyTint),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // Spacer matching AppBar height so content starts below it.
+                const SizedBox(height: kToolbarHeight),
+
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Hero status card
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                            AppSpacing.lg,
+                            AppSpacing.md,
+                          ),
+                          child: _buildHeroStatusCard(),
+                        ),
+
+                        // Active dispatcher alert (conditional)
+                        if (_activeAlertMessage != null &&
+                            (_demoState == DemoState.crisis ||
+                                _demoState == DemoState.evacuation ||
+                                _demoState == DemoState.reroute))
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.lg,
+                              0,
+                              AppSpacing.lg,
+                              AppSpacing.md,
+                            ),
+                            child: _buildAlertBanner(),
+                          ),
+
+                        // SMS pre-alert banner (conditional)
+                        if (_showSmsBanner)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.lg,
+                              0,
+                              AppSpacing.lg,
+                              AppSpacing.md,
+                            ),
+                            child: _buildSmsBanner(),
+                          ),
+
+                        // Map card
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.lg,
+                          ),
+                          child: _buildMapCard(),
+                        ),
+
+                        // Metrics row (only in passive states)
+                        if (_demoState == DemoState.safe ||
+                            _demoState == DemoState.smsReceived)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.lg,
+                              AppSpacing.lg,
+                              AppSpacing.lg,
+                              0,
+                            ),
+                            child: _buildMetricsRow(),
+                          ),
+
+                        // Man-down banner (conditional)
+                        if (_demoState == DemoState.manDown)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.lg,
+                              AppSpacing.lg,
+                              AppSpacing.lg,
+                              0,
+                            ),
+                            child: _buildManDownBanner(),
+                          ),
+
+                        // Nearby safe locations
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.xl,
+                            AppSpacing.lg,
+                            0,
+                          ),
+                          child: _buildSafeLocations(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hero status card
+  // ---------------------------------------------------------------------------
+  Widget _buildHeroStatusCard() {
+    final gradient = _gradientForStatus(_currentStatus);
+    final IconData icon =
+        _statusIcons[_currentStatus] ?? Icons.shield_outlined;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        boxShadow: AppShadows.medium,
+      ),
+      child: Row(
+        children: [
+          // Icon chip
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.22),
+              borderRadius: BorderRadius.circular(AppRadii.lg),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.35),
+                width: 1,
+              ),
+            ),
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _currentStatus.toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _statusSubtitle(_currentStatus),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.92),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(AppRadii.pill),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.engineering_outlined,
+                        size: 12,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Worker · Site 7B',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.95),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dispatcher alert banner
+  // ---------------------------------------------------------------------------
+  Widget _buildAlertBanner() {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(
+          color: AppColors.emergencyRed.withOpacity(0.35),
+        ),
+        boxShadow: AppShadows.soft,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.emergencyRed.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.emergencyRed,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Dispatcher Message',
+                  style: AppTextStyles.bodyStrong.copyWith(
+                    color: AppColors.emergencyDeep,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _activeAlertMessage ?? '',
+                  style: AppTextStyles.body,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: const Icon(
+              Icons.close_rounded,
+              color: AppColors.inkSubtle,
+              size: 20,
+            ),
+            onPressed: () => setState(() => _activeAlertMessage = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SMS pre-alert banner
+  // ---------------------------------------------------------------------------
+  Widget _buildSmsBanner() {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.skyCyan.withOpacity(0.3)),
+        boxShadow: AppShadows.soft,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.skyCyan.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: const Icon(
+              Icons.sms_outlined,
+              color: AppColors.skyDeep,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pre-Alert',
+                  style: AppTextStyles.bodyStrong.copyWith(
+                    color: AppColors.skyDeep,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Storm forecasted in 3 days. Prepare for potential evacuation.',
+                  style: AppTextStyles.body,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Map card
+  // ---------------------------------------------------------------------------
+  Widget _buildMapCard() {
+    Color activeColor = _statusColors[_currentStatus]!;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        boxShadow: AppShadows.soft,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        child: SizedBox(
+          height: 360,
+          child: Stack(
+            children: [
+              FlutterMap(
+                options: const MapOptions(
+                  initialCenter: LatLng(45.4353, 28.0080),
+                  initialZoom: 13.0,
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.hydralis.floodguard',
+                  ),
+                  if (_demoState == DemoState.evacuation ||
+                      _demoState == DemoState.reroute ||
+                      _demoState == DemoState.manDown)
+                    PolylineLayer(
+                      polylines: [
+                        if (_demoState == DemoState.evacuation)
+                          Polyline(
+                            points: _routeA,
+                            color: AppColors.skyDeep,
+                            strokeWidth: 5.0,
+                          ),
+                        if (_demoState == DemoState.reroute ||
+                            _demoState == DemoState.manDown) ...[
+                          Polyline(
+                            points: _routeA,
+                            color: AppColors.emergencyRed,
+                            strokeWidth: 5.0,
+                          ),
+                          Polyline(
+                            points: _routeB,
+                            color: AppColors.skyDeep,
+                            strokeWidth: 5.0,
+                          ),
+                        ],
+                      ],
+                    ),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: _workerPosition,
+                        width: 40,
+                        height: 40,
+                        child: Icon(
+                          Icons.person_pin_circle,
+                          color: activeColor,
+                          size: 40,
+                        ),
+                      ),
+                      const Marker(
+                        point: LatLng(45.4400, 28.0150),
+                        width: 40,
+                        height: 40,
+                        child: Icon(
+                          Icons.location_on,
+                          color: AppColors.safeGreen,
+                          size: 40,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+              // Map attribution pill
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(AppRadii.pill),
+                    boxShadow: AppShadows.soft,
+                  ),
+                  child: Text(
+                    'Map Data © Hydralis',
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.inkMuted,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Floating navigation button (gradient)
+              Positioned(
+                bottom: 16,
+                left: 16,
+                child: GestureDetector(
+                  onTap: () {},
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: AppGradients.ocean,
+                      shape: BoxShape.circle,
+                      boxShadow: AppShadows.glow,
+                    ),
+                    child: const Icon(
+                      Icons.navigation_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Metrics row (Copernicus + Galileo)
+  // ---------------------------------------------------------------------------
+  Widget _buildMetricsRow() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: _metricCard(
+            eyebrow: 'COPERNICUS',
+            subLabel: 'Site Risk Gauge',
+            value: _copernicusRisk,
+            valueColor: _copernicusColor(_copernicusRisk),
+            footnote: '10-day forecast',
+            icon: Icons.satellite_alt_rounded,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: _metricCard(
+            eyebrow: 'GALILEO + EGNOS',
+            subLabel: 'Precision Heartbeat',
+            value: 'ACTIVE',
+            valueColor: AppColors.safeGreen,
+            footnote: 'Within geofence',
+            icon: Icons.radar_rounded,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _metricCard({
+    required String eyebrow,
+    required String subLabel,
+    required String value,
+    required Color valueColor,
+    required String footnote,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.border),
+        boxShadow: AppShadows.soft,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.skyCyan.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+            ),
+            child: Icon(icon, color: AppColors.skyDeep, size: 18),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(eyebrow, style: AppTextStyles.eyebrow),
+          const SizedBox(height: 2),
+          Text(subLabel, style: AppTextStyles.body),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            value,
+            style: AppTextStyles.titleMD.copyWith(color: valueColor),
+          ),
+          const SizedBox(height: 2),
+          Text(footnote, style: AppTextStyles.caption),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Man-down banner
+  // ---------------------------------------------------------------------------
+  Widget _buildManDownBanner() {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        gradient: AppGradients.danger,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        boxShadow: AppShadows.medium,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(color: Colors.white.withOpacity(0.35)),
+            ),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Movement Watchdog',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Zero movement detected · SOS in $_manDownCountdown s',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.95),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Nearby safe locations
+  // ---------------------------------------------------------------------------
+  Widget _buildSafeLocations() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text('Nearby Safe Locations', style: AppTextStyles.titleMD),
+            Text('10 km radius', style: AppTextStyles.caption),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            border: Border.all(color: AppColors.border),
+            boxShadow: AppShadows.soft,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.safeGreen.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                ),
+                child: const Icon(
+                  Icons.shield_outlined,
+                  color: AppColors.safeGreen,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'City Hall Emergency Center',
+                      style: AppTextStyles.bodyStrong,
+                    ),
+                    const SizedBox(height: 2),
+                    Text('Approx. 1.2 km · safe', style: AppTextStyles.caption),
+                  ],
+                ),
+              ),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: AppGradients.ocean,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  boxShadow: AppShadows.soft,
+                ),
+                child: const Icon(
+                  Icons.navigation_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drawer
+  // ---------------------------------------------------------------------------
+  Widget _buildDrawer(BuildContext context) {
+    return Drawer(
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Gradient header
+          Container(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              MediaQuery.of(context).padding.top + AppSpacing.lg,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            decoration: const BoxDecoration(gradient: AppGradients.deep),
+            child: Column(
               children: [
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(activeIcon, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Text(
-                      _currentStatus,
-                      style: const TextStyle(
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                      ),
+                      child: const Icon(
+                        Icons.water_drop_rounded,
                         color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        size: 16,
+                      ),
+                    ),
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(AppRadii.lg),
+                        boxShadow: AppShadows.glow,
+                      ),
+                      child: const Icon(
+                        Icons.person_outline,
+                        color: AppColors.deepNavy,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Andrei Ionescu',
+                            style: AppTextStyles.titleLG.copyWith(
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'andrei.ionescu@hydralis.com',
+                            style: AppTextStyles.body.copyWith(
+                              color: Colors.white.withOpacity(0.78),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -459,404 +1273,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
-          // Active Alert Message Overlay
-          if (_activeAlertMessage != null &&
-              (_demoState == DemoState.crisis ||
-                  _demoState == DemoState.evacuation ||
-                  _demoState == DemoState.reroute))
-            Container(
-              margin: const EdgeInsets.all(8),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.red.shade900,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
-                  BoxShadow(color: Colors.black26, blurRadius: 8),
-                ],
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning, color: Colors.white),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'DISPATCHER MESSAGE: $_activeAlertMessage',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    onPressed: () => setState(() => _activeAlertMessage = null),
-                  ),
-                ],
-              ),
-            ),
-
-          // SMS Banner Overlay Mock
-          if (_showSmsBanner)
-            Container(
-              margin: const EdgeInsets.all(8),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade900,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
-                  BoxShadow(color: Colors.black26, blurRadius: 8),
-                ],
-              ),
-              child: Row(
-                children: const [
-                  Icon(Icons.message, color: Colors.white),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'PRE-ALERT: Storm forecasted in 3 days. Prepare for potential evacuation.',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // Scrollable Content
+          // Menu items
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Map Area
-                  SizedBox(
-                    height: 450,
-                    child: Stack(
-                      children: [
-                        FlutterMap(
-                          options: MapOptions(
-                            initialCenter: const LatLng(45.4353, 28.0080),
-                            initialZoom: 13.0,
-                          ),
-                          children: [
-                            TileLayer(
-                              urlTemplate:
-                                  'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName: 'com.hydralis.floodguard',
-                            ),
-                            if (_demoState == DemoState.evacuation ||
-                                _demoState == DemoState.reroute ||
-                                _demoState == DemoState.manDown)
-                              PolylineLayer(
-                                polylines: [
-                                  if (_demoState == DemoState.evacuation)
-                                    Polyline(
-                                      points: _routeA,
-                                      color: Colors.blue,
-                                      strokeWidth: 5.0,
-                                    ),
-                                  if (_demoState == DemoState.reroute ||
-                                      _demoState == DemoState.manDown) ...[
-                                    Polyline(
-                                      points: _routeA,
-                                      color: Colors.red,
-                                      strokeWidth: 5.0,
-                                    ),
-                                    Polyline(
-                                      points: _routeB,
-                                      color: Colors.blue,
-                                      strokeWidth: 5.0,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            MarkerLayer(
-                              markers: [
-                                Marker(
-                                  point: _workerPosition,
-                                  width: 40,
-                                  height: 40,
-                                  child: Icon(
-                                    Icons.person_pin_circle,
-                                    color: activeColor,
-                                    size: 40,
-                                  ),
-                                ),
-                                Marker(
-                                  point: const LatLng(45.4400, 28.0150),
-                                  width: 40,
-                                  height: 40,
-                                  child: const Icon(
-                                    Icons.location_on,
-                                    color: Colors.green,
-                                    size: 40,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        // Overlay map data text
-                        Positioned(
-                          bottom: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            color: Colors.white.withOpacity(0.7),
-                            child: const Text(
-                              'Map Data © Hydralis',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        ),
-                        // Overlay FAB
-                        Positioned(
-                          bottom: 30,
-                          right: 16,
-                          child: FloatingActionButton(
-                            mini: true,
-                            backgroundColor: const Color(0xFF000B2B),
-                            child: const Icon(
-                              Icons.navigation,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            onPressed: () {},
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Passive Readiness Dashboard elements
-                  if (_demoState == DemoState.safe ||
-                      _demoState == DemoState.smsReceived)
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.green.shade200,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: const [
-                                          Icon(
-                                            Icons.satellite_alt,
-                                            color: Colors.blue,
-                                            size: 20,
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            'Copernicus',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      const Text(
-                                        'Site Risk Gauge',
-                                        style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                      Text(
-                                        _copernicusRisk,
-                                        style: const TextStyle(
-                                          color: Colors.green,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                      const Text(
-                                        '10-day forecast',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.blue.shade200,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: const [
-                                          Icon(
-                                            Icons.radar,
-                                            color: Colors.blue,
-                                            size: 20,
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            'Galileo+EGNOS',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      const Text(
-                                        'Precision Heartbeat',
-                                        style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                      const Text(
-                                        'ACTIVE',
-                                        style: TextStyle(
-                                          color: Colors.blue,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                      const Text(
-                                        'Within Geofence',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  // Man Down Alert Indicator
-                  if (_demoState == DemoState.manDown)
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.red, width: 2),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.red,
-                              size: 40,
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Movement Watchdog',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.red,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Zero movement detected. SOS in $_manDownCountdown seconds.',
-                                    style: const TextStyle(color: Colors.red),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Nearby Safe Locations (10km radius):',
-                          style: TextStyle(fontSize: 16, color: Colors.black54),
-                        ),
-                        const SizedBox(height: 12),
-                        Card(
-                          color: const Color(0xFFF9F9F9),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            side: BorderSide(color: Colors.grey[300]!),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.security,
-                                color: Colors.green,
-                              ),
-                            ),
-                            title: const Text(
-                              'City Hall Emergency Center',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            trailing: const Icon(
-                              Icons.navigation,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            child: ListView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.md,
               ),
+              children: [
+                _drawerTile(
+                  icon: Icons.person_outline,
+                  label: 'Profile Settings',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ProfileScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _drawerTile(
+                  icon: Icons.contacts_outlined,
+                  label: 'Emergency Contacts',
+                  onTap: () {},
+                ),
+                _drawerTile(
+                  icon: Icons.tips_and_updates_outlined,
+                  label: 'Safety Tips',
+                  onTap: () {},
+                ),
+                _drawerTile(
+                  icon: Icons.info_outline,
+                  label: 'About',
+                  onTap: () {},
+                ),
+              ],
+            ),
+          ),
+
+          // Footer with logo + version
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.xl,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    gradient: AppGradients.ocean,
+                    borderRadius: BorderRadius.circular(AppRadii.sm),
+                  ),
+                  child: const Icon(
+                    Icons.water_drop_rounded,
+                    color: Colors.white,
+                    size: 14,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  'Hydralis',
+                  style: AppTextStyles.bodyStrong,
+                ),
+                const Spacer(),
+                Text(
+                  'v1.0.0',
+                  style: AppTextStyles.caption,
+                ),
+              ],
             ),
           ),
         ],
@@ -864,136 +1354,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildStatusCard(
-    String text,
-    IconData icon,
-    Color iconColor,
-    Color textColor,
-  ) {
-    bool isSelected = _currentStatus == text;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _currentStatus = text;
-        });
-      },
-      child: Container(
-        height: 90,
-        decoration: BoxDecoration(
-          color: isSelected ? iconColor : Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isSelected ? iconColor : Colors.grey[300]!),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: isSelected ? Colors.white : iconColor, size: 32),
-            const SizedBox(height: 8),
-            Text(
-              text,
-              style: TextStyle(
-                color: isSelected ? Colors.white : textColor,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+  Widget _drawerTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: AppColors.skyCyan.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+                child: Icon(icon, color: AppColors.skyDeep, size: 18),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDrawer(BuildContext context) {
-    return Drawer(
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(label, style: AppTextStyles.bodyStrong),
               ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: Colors.blue,
-                    child: const Icon(
-                      Icons.person_outline,
-                      color: Colors.white,
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Andrei Ionescu',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          'andrei.ionescu@hydralis.com',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.black54),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.inkSubtle,
+                size: 20,
               ),
-            ),
-            const Divider(height: 1),
-            const SizedBox(height: 16),
-            ListTile(
-              title: const Text(
-                'Profile Settings',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ProfileScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              title: const Text(
-                'Emergency Contacts',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              onTap: () {},
-            ),
-            ListTile(
-              title: const Text(
-                'Safety Tips',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              onTap: () {},
-            ),
-            ListTile(
-              title: const Text(
-                'About',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              onTap: () {},
-            ),
-            const Spacer(),
-          ],
+            ],
+          ),
         ),
       ),
     );

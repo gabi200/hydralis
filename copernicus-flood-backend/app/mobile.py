@@ -25,10 +25,12 @@ from app.hydralis import (
     _password_hash,
     manager,
 )
+from app.logging_setup import get_pipeline_logger, log_step
 from app.models import AreaInput, CenterRadius, FloodDetectionRequest
 from app.sentinel_hub import SentinelHubClient
 
 router = APIRouter(prefix="/api", tags=["Hydralis Mobile"])
+_log = get_pipeline_logger("mobile")
 
 MobileStatus = Literal["Safe", "Monitor", "Need Help", "Emergency"]
 
@@ -149,8 +151,8 @@ async def map_data(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     radius_meters = parse_radius_meters(radius)
+    log_step(_log, "map_data.start", lat=lat, lng=lng, radius_m=radius_meters)
 
-    # Always fetch live DB data (fast, local SQLite).
     safe_locations = [
         _location_from_row(row)
         for row in conn.execute("SELECT * FROM safe_locations ORDER BY name").fetchall()
@@ -169,8 +171,10 @@ async def map_data(
     now = time.monotonic()
     cached = _MAP_DATA_CACHE.get(cache_key)
     if cached is not None and (now - cached[0]) < _MAP_DATA_CACHE_TTL_SECONDS:
+        log_step(_log, "map_data.cache_hit", age_s=now - cached[0])
         flood_warning = cached[1]
     else:
+        log_step(_log, "map_data.cache_miss")
         # Run EFAS and Sentinel Hub concurrently.
         async def _fetch_efas() -> dict[str, Any] | None:
             try:
@@ -212,7 +216,14 @@ async def map_data(
         )
         flood_warning = {"copernicus": flood_detection, "efas": efas_summary}
         _MAP_DATA_CACHE[cache_key] = (now, flood_warning)
+        log_step(_log, "map_data.cached", key=str(cache_key))
 
+    log_step(
+        _log,
+        "map_data.done",
+        safe_locations=len(safe_locations),
+        active_alerts=len(active_alerts),
+    )
     return {
         "location": {"lat": lat, "lng": lng, "radius_meters": radius_meters},
         "safe_locations": safe_locations,
@@ -277,6 +288,7 @@ async def trigger_alert(
     user_id = request.user_id or token_payload.get("id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token does not include a user id")
+    log_step(_log, "trigger_alert.start", user_id=str(user_id))
     mobile_user = _get_mobile_user_or_404(conn, str(user_id))
     now = utc_now_iso()
     trigger_id = next_prefixed_id(conn, "emergency_triggers", "EMG")
@@ -347,6 +359,13 @@ async def trigger_alert(
             "user_status": user_status,
             "mobility_info": mobility_info,
         },
+    )
+    log_step(
+        _log,
+        "trigger_alert.done",
+        alert_id=alert_id,
+        trigger_id=trigger_id,
+        status=user_status,
     )
     return payload
 
