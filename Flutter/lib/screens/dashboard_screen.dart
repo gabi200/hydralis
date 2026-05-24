@@ -152,8 +152,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         print(
           "Alert payload type: ${payload?['type']} status: $status sourceMobile: $isMobileEmergency broadcastSent: $broadcastSent",
         );
+        final isEvacuationType = payload?['type'] == 'evacuation' ||
+            payload?['type'] == 'flood' ||
+            payload?['type'] == 'flash-flood' ||
+            payload?['type'] == 'storm';
         if (payload != null &&
-            payload['type'] == 'evacuation' &&
+            isEvacuationType &&
             broadcastSent &&
             isPublished &&
             !isMobileEmergency &&
@@ -978,7 +982,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ---------------------------------------------------------------------------
   Widget _buildMetricsRow() {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: _metricCard(
