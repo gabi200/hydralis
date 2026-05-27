@@ -242,6 +242,72 @@
       />
     </div>
 
+    <Card class="p-5 border-amber-300/40 dark:border-amber-300/20">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-(--label-text) flex items-center gap-2">
+            <Icon name="mdi:test-tube" class="h-5 w-5 text-amber-500" />
+            Demo Alarm Trigger
+          </h2>
+          <p class="text-xs text-(--hint-text) mt-0.5">
+            Fire a deterministic alarm on a specific sensor. The same payload reaches
+            mobile phones and dashboards via the existing WebSocket flow.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          color="warning"
+          size="sm"
+          icon-left="mdi:stop-circle-outline"
+          :loading="demoClearing"
+          @click="clearDemoSpike"
+        >
+          Clear active demo
+        </Button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <CustomSelect
+          v-model="demoSensorId"
+          label="Sensor"
+          :options="
+            sensors.map((s) => ({
+              label: `${s.id} · ${s.locationName}`,
+              value: s.id,
+            }))
+          "
+        />
+        <CustomSelect
+          v-model="demoSeverity"
+          label="Severity"
+          :options="[
+            { label: 'Warning (above warning threshold)', value: 'warning' },
+            { label: 'Critical (full screaming alarm)', value: 'critical' },
+          ]"
+        />
+        <div class="flex items-end">
+          <Button
+            color="danger"
+            variant="solid"
+            size="md"
+            class="w-full"
+            icon-left="mdi:bell-ring"
+            :disabled="!demoSensorId"
+            :loading="demoFiring"
+            @click="fireDemoSpike"
+          >
+            Fire demo alarm
+          </Button>
+        </div>
+      </div>
+      <p
+        v-if="demoLastResult"
+        class="text-xs text-(--hint-text) mt-3 flex items-center gap-2"
+      >
+        <Icon name="mdi:check-circle" class="h-4 w-4 text-emerald-500" />
+        {{ demoLastResult }}
+      </p>
+    </Card>
+
     <Card class="p-5">
       <div class="flex items-center justify-between mb-4">
         <div>
@@ -711,6 +777,53 @@ const {
 const resolvedAlertCount = computed(
   () => alertHistory.value.filter((a) => a.resolvedAt != null).length,
 );
+
+// ----- Demo alarm trigger -----
+const { post: apiPost } = useApi();
+const demoSensorId = ref<string>("");
+const demoSeverity = ref<"warning" | "critical">("critical");
+const demoFiring = ref(false);
+const demoClearing = ref(false);
+const demoLastResult = ref<string>("");
+
+watchEffect(() => {
+  if (!demoSensorId.value && sensors.value.length) {
+    demoSensorId.value = sensors.value[0].id;
+  }
+});
+
+const fireDemoSpike = async () => {
+  if (!demoSensorId.value) return;
+  demoFiring.value = true;
+  try {
+    const res = await apiPost<{ sensorId: string; sensorType: string }>(
+      "/api/v1/gas/demo/spike",
+      {
+        sensor_id: demoSensorId.value,
+        severity: demoSeverity.value,
+      },
+    );
+    demoLastResult.value =
+      `Spike scheduled for ${res.sensorId} (${res.sensorType}, ${demoSeverity.value}). ` +
+      `Alarm will fire on the next simulator tick (~15s).`;
+  } catch (err) {
+    demoLastResult.value = `Failed to fire demo: ${err}`;
+  } finally {
+    demoFiring.value = false;
+  }
+};
+
+const clearDemoSpike = async () => {
+  demoClearing.value = true;
+  try {
+    await apiPost("/api/v1/gas/demo/clear", {});
+    demoLastResult.value = "Active demo spike cleared.";
+  } catch (err) {
+    demoLastResult.value = `Failed to clear demo: ${err}`;
+  } finally {
+    demoClearing.value = false;
+  }
+};
 
 const buildingLabel = (buildingId: string) =>
   buildingId

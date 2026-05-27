@@ -59,6 +59,152 @@
     </Card>
 
     <Card class="p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-lg font-semibold text-(--label-text)">Gas Safety Profile</h2>
+          <p class="text-xs text-(--hint-text) mt-1">
+            Buildings, sensors, and registered phones receiving live alerts.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          color="primary"
+          size="sm"
+          icon-left="mdi:refresh"
+          :loading="gasLoading"
+          @click="refreshGasProfile"
+        >
+          Refresh
+        </Button>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <div class="rounded-xl border border-(--card-border) p-3">
+          <p class="text-xs text-(--hint-text) uppercase tracking-wide">Total sensors</p>
+          <p class="text-2xl font-bold text-(--label-text) mt-1">{{ gasSummary?.total ?? 0 }}</p>
+        </div>
+        <div class="rounded-xl border border-(--card-border) p-3">
+          <p class="text-xs text-(--hint-text) uppercase tracking-wide">Online</p>
+          <p class="text-2xl font-bold text-emerald-500 mt-1">{{ gasSummary?.online ?? 0 }}</p>
+        </div>
+        <div class="rounded-xl border border-(--card-border) p-3">
+          <p class="text-xs text-(--hint-text) uppercase tracking-wide">In alert</p>
+          <p class="text-2xl font-bold text-red-500 mt-1">{{ gasSummary?.inAlert ?? 0 }}</p>
+        </div>
+        <div class="rounded-xl border border-(--card-border) p-3">
+          <p class="text-xs text-(--hint-text) uppercase tracking-wide">Devices</p>
+          <p class="text-2xl font-bold text-(--label-text) mt-1">{{ gasSummary?.devices ?? 0 }}</p>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-(--label-text) mb-2">
+            Default building for new sensors
+          </h3>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              v-for="b in buildings"
+              :key="b.buildingId"
+              :variant="defaultBuildingId === b.buildingId ? 'solid' : 'outline'"
+              :color="b.status === 'alert' ? 'danger' : 'primary'"
+              size="sm"
+              icon-left="mdi:office-building"
+              @click="setDefaultBuilding(b.buildingId)"
+            >
+              {{ b.locationName || b.buildingId }}
+              <span class="ml-1 text-[10px] opacity-70">
+                · {{ b.sensorCount }}s
+              </span>
+            </Button>
+            <span
+              v-if="!buildings.length"
+              class="text-xs text-(--hint-text)"
+            >
+              No buildings registered yet.
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-sm font-semibold text-(--label-text) mb-2">
+            Sensor thresholds (ppm)
+          </h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div
+              v-for="(t, key) in thresholds"
+              :key="key"
+              class="rounded-lg border border-(--card-border) px-3 py-2"
+            >
+              <p class="text-[11px] font-bold text-(--hint-text) tracking-wide">
+                {{ key }}
+              </p>
+              <p class="text-xs text-(--label-text) mt-0.5">
+                Warn <strong>{{ t.warning.toLocaleString() }}</strong>
+              </p>
+              <p class="text-xs text-red-500">
+                Crit <strong>{{ t.critical.toLocaleString() }}</strong>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-sm font-semibold text-(--label-text) mb-2">
+            Registered phones ({{ devices.length }})
+          </h3>
+          <div
+            v-if="!devices.length"
+            class="text-xs text-(--hint-text)"
+          >
+            No phones registered yet. Install the Hydralis mobile app and open
+            the Gas Safety screen to register a device.
+          </div>
+          <ul v-else class="space-y-2">
+            <li
+              v-for="d in devices"
+              :key="d.deviceId"
+              class="flex items-center justify-between rounded-lg border border-(--card-border) px-3 py-2"
+            >
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-(--label-text) truncate">
+                  {{ d.label || d.deviceId }}
+                </p>
+                <p class="text-xs text-(--hint-text) truncate">
+                  {{ d.platform || "unknown" }} · {{ d.owner || "anonymous" }}
+                </p>
+              </div>
+              <Badge
+                :variant="d.status === 'active' ? 'solid' : 'outline'"
+                :color="d.status === 'active' ? 'success' : 'neutral'"
+              >
+                {{ d.status }}
+              </Badge>
+            </li>
+          </ul>
+        </div>
+
+        <div class="space-y-3 pt-2 border-t border-(--card-border)">
+          <Switch
+            v-model="gasPrefs.autoArmSiren"
+            color="danger"
+            label="Auto-arm screaming siren on critical gas alerts"
+          />
+          <Switch
+            v-model="gasPrefs.broadcastResidential"
+            color="primary"
+            label="Broadcast residential gas alerts to mobile users"
+          />
+          <Switch
+            v-model="gasPrefs.flashTitle"
+            color="primary"
+            label="Flash browser tab title during active alerts"
+          />
+        </div>
+      </div>
+    </Card>
+
+    <Card class="p-6">
       <h2 class="text-lg font-semibold text-(--label-text) mb-4">About Hydralis</h2>
       <div class="space-y-2 text-sm text-(--hint-text)">
         <p>Version: 1.0.0-mvp</p>
@@ -99,4 +245,76 @@ const notifSettings = reactive({
   sensorWarnings: true,
   soundAlarm: true,
 });
+
+const {
+  buildings,
+  devices,
+  thresholds,
+  refreshBuildings,
+  refreshDevices,
+  fetchSummary,
+} = useGasSensors();
+
+type GasSummary = NonNullable<Awaited<ReturnType<typeof fetchSummary>>>;
+const gasSummary = ref<GasSummary | null>(null);
+const gasLoading = ref(false);
+const defaultBuildingId = useState<string | null>(
+  "gas-default-building",
+  () => null,
+);
+
+const gasPrefs = reactive({
+  autoArmSiren: true,
+  broadcastResidential: true,
+  flashTitle: true,
+});
+
+const setDefaultBuilding = (id: string) => {
+  defaultBuildingId.value = defaultBuildingId.value === id ? null : id;
+  if (typeof window !== "undefined") {
+    if (defaultBuildingId.value) {
+      window.localStorage.setItem("hydralis_default_building", id);
+    } else {
+      window.localStorage.removeItem("hydralis_default_building");
+    }
+  }
+};
+
+const refreshGasProfile = async () => {
+  gasLoading.value = true;
+  try {
+    await Promise.all([refreshBuildings(), refreshDevices()]);
+    gasSummary.value = await fetchSummary();
+  } finally {
+    gasLoading.value = false;
+  }
+};
+
+onMounted(() => {
+  if (typeof window !== "undefined") {
+    const stored = window.localStorage.getItem("hydralis_default_building");
+    if (stored) defaultBuildingId.value = stored;
+    const prefs = window.localStorage.getItem("hydralis_gas_prefs");
+    if (prefs) {
+      try {
+        Object.assign(gasPrefs, JSON.parse(prefs));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  refreshGasProfile();
+});
+
+watch(
+  gasPrefs,
+  (value) => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      "hydralis_gas_prefs",
+      JSON.stringify(value),
+    );
+  },
+  { deep: true },
+);
 </script>

@@ -1,12 +1,13 @@
-# Hydralis Flood Disaster Management System
+# Hydralis Flood and Gas Safety Platform
 
-Hydralis is an integrated flood disaster management platform with three primary software components:
+Hydralis is an integrated disaster management platform that covers both **flood monitoring** (Copernicus / Sentinel-1) and **indoor gas safety** (CH4, CO, LPG, multi-gas). It ships three software components plus a hardware concept:
 
-- **Copernicus Flood Backend** (`copernicus-flood-backend/`): FastAPI service for flood screening, Sentinel Hub/Copernicus integration, EFAS overlays, persistent dispatch data, mobile APIs, and WebSocket events.
-- **Dispatch Dashboard** (`Dashboard/`): Nuxt web application used by dispatchers, industrial operators, and administrators to monitor alerts, satellite intelligence, safe locations, industrial telemetry, and subscriptions.
-- **Hydralis Mobile App** (`Flutter/`): Flutter mobile application for citizen/worker guidance, map awareness, evacuation flow, status updates, and man-down SOS alerts.
+- **Copernicus Flood Backend** (`copernicus-flood-backend/`) — FastAPI service for flood screening, Sentinel Hub / Copernicus integration, EFAS overlays, dispatch alerts, mobile APIs, gas sensor monitoring with a simulator, multi-device push acknowledgement, and WebSocket events.
+- **Dispatch Dashboard** (`Dashboard/`) — Nuxt web app for dispatchers, industrial operators, and administrators. Covers flood alerts, satellite intelligence, safe locations, industrial telemetry, subscriptions, and a dedicated **Gas Monitoring** section (live sensors, devices, history, demo controls).
+- **Hydralis Mobile App** (`Flutter/`) — Flutter app with three modes selected at launch: **Resident**, **Gas Dashboard**, and **Dispatcher**. Includes a screaming full-screen alarm overlay driven by the backend WebSocket stream, building selection, evacuation flow, and man-down SOS.
+- **Flood Monitoring Arduino Circuit** (`Flood_monitoring_Arduino_circuit/`) — hardware concept image for the flood monitoring node.
 
-There is also an Arduino circuit asset under `Flood_monitoring_Arduino_circuit/` for the flood monitoring hardware concept.
+A `presentation/` folder holds the FloodGuard SCSS 2026 deck and simulator screenshots used for demos.
 
 ## System Overview
 
@@ -15,32 +16,50 @@ There is also an Arduino circuit asset under `Flood_monitoring_Arduino_circuit/`
                                       |
                                       v
 Flutter Mobile App  <---- REST ---->  FastAPI Backend  <---- REST ---->  Nuxt Dispatch Dashboard
-       |                              SQLite storage                         |
-       |                                  |                                  |
+   (Resident /                        SQLite storage                       (Flood + Gas)
+    Gas / Dispatcher)                     |
+       |                                  |
        +---------- WebSocket events ------+---------- WebSocket events ------+
                                       |
                                       v
-                              EFAS / OSM boundary data
+                       EFAS / OSM boundaries · Gas simulator · Devices
 ```
 
-The backend is the source of truth for alerts, mobile users, safe locations, industrial facilities, satellite data, and WebSocket updates. The dashboard and mobile app communicate with it through REST and WebSocket endpoints.
+The backend is the source of truth for flood alerts, mobile users, safe locations, industrial facilities, satellite data, gas sensors, registered phones, and live WebSocket broadcasts. Dashboard and mobile clients consume the same REST + WebSocket surface.
 
 ## Repository Layout
 
 ```text
 .
-├── copernicus-flood-backend/      FastAPI backend and tests
-├── Dashboard/                     Nuxt dispatch dashboard
-├── Flutter/                       Flutter mobile app
+├── copernicus-flood-backend/        FastAPI backend (flood + gas) and tests
+│   └── app/
+│       ├── gas.py                   Gas thresholds, classifier, simulator
+│       ├── gas_routes.py            /api/v1/gas/* endpoints
+│       ├── flood.py                 Sentinel-1 flood screening
+│       ├── mobile.py                Mobile auth, alerts, SOS
+│       └── ...
+├── Dashboard/                       Nuxt dispatch dashboard
+│   └── app/pages/dashboard/
+│       ├── gas/{index,devices,history}.vue   Gas Monitoring section
+│       ├── settings.vue                       Gas Safety Profile + alarm prefs
+│       └── alerts.vue, satellite.vue, ...
+├── Flutter/                         Flutter mobile app
+│   └── lib/screens/
+│       ├── mode_select_screen.dart  Resident / Gas / Dispatcher chooser
+│       ├── home_screen.dart         Resident home with building + alarms
+│       ├── gas_dashboard_screen.dart
+│       ├── dashboard_screen.dart    Dispatcher mode
+│       └── building_select_screen.dart
 ├── Flood_monitoring_Arduino_circuit/
-│   └── circuit_image.png          Hardware concept image
-├── docs/                          Project-level documentation
-└── backend_spec.md                Earlier backend integration specification
+├── presentation/                    Deck + simulator screenshots
+├── floodguard-backend/              Reserved (in progress)
+├── docs/                            Project-level documentation
+└── backend_spec.md                  Earlier backend integration spec
 ```
 
 ## Quick Start
 
-Start the backend first:
+Backend first:
 
 ```bash
 cd copernicus-flood-backend
@@ -51,7 +70,9 @@ cp .env.example .env
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Start the dashboard:
+The gas simulator starts automatically in demo mode and streams readings every ~15 seconds, with periodic spikes to exercise warning/critical thresholds.
+
+Dashboard:
 
 ```bash
 cd Dashboard
@@ -59,7 +80,7 @@ npm install
 NUXT_PUBLIC_API_BASE=http://127.0.0.1:8000 npm run dev
 ```
 
-Start the mobile app:
+Mobile app:
 
 ```bash
 cd Flutter
@@ -67,11 +88,23 @@ flutter pub get
 flutter run
 ```
 
-For the Android emulator, the mobile app defaults to `http://10.0.2.2:8000`, which maps to the host machine. For a physical device, update `Flutter/lib/services/backend_service.dart` to use the host machine LAN IP.
+For the Android emulator the mobile app defaults to `http://10.0.2.2:8000`. For a physical device, set the host LAN IP in `Flutter/lib/services/backend_service.dart`.
+
+## Mobile Modes
+
+On first launch the app shows a **Mode Select** screen and persists the choice in `SharedPreferences` (`hydralis_mode`):
+
+| Mode | Screen | Purpose |
+| --- | --- | --- |
+| `resident` | `HomeScreen` | Resident view of their building, sensor list, recent alerts, evacuation flow. Receives full-screen screaming alarm overlay on critical events. |
+| `gas` | `GasDashboardScreen` | Live gas sensor tiles, online/alert counters, TTS + audio alarm playback. |
+| `dispatcher` | `DashboardScreen` | Original dispatcher view (map, alerts, satellite). |
+
+Switching modes is available from the profile / settings inside the app.
 
 ## Demo Credentials
 
-The backend seeds demo dashboard users into SQLite during startup.
+The backend seeds demo dashboard users into SQLite at startup.
 
 | Username | Password | Role |
 | --- | --- | --- |
@@ -83,38 +116,68 @@ The mobile app authenticates a demo user automatically:
 - Email: `andrei.ionescu@hydralis.com`
 - Password: `secure_password`
 
+## Gas Monitoring
+
+Endpoints live under `/api/v1/gas/*`:
+
+- `GET /sensors`, `GET /sensors/{id}`, `GET /sensors/{id}/readings`
+- `GET /alerts`, `POST /alerts/{id}/resolve`, `POST /alerts/{id}/ack`, `GET /alerts/{id}/acks`
+- `GET /summary`, `GET /buildings`
+- `GET /devices`, `POST /devices`, `POST /devices/{id}/heartbeat`
+- `POST /readings/ingest` (for real hardware)
+
+Thresholds (ppm) used by `app/gas.py`:
+
+| Sensor | Warning | Critical |
+| --- | --- | --- |
+| CH4 | 1000 | 5000 |
+| CO  | 35   | 200  |
+| LPG | 1000 | 5000 |
+| MULTI | 1000 | 5000 |
+
+Mobile devices register through `POST /devices` and acknowledge alerts via `POST /alerts/{id}/ack`, so the dashboard can show which phones have seen each event.
+
+### Dashboard Gas Pages
+
+- `dashboard/gas/index.vue` — Live sensors, DEMO badge, **Arm Siren** button (browser requires a user gesture), per-building tiles, active and resolved alerts.
+- `dashboard/gas/devices.vue` — Registered phones, platforms, last heartbeat.
+- `dashboard/gas/history.vue` — Historical alerts and resolution timeline.
+- `dashboard/settings.vue` — **Gas Safety Profile**: auto-arm siren, broadcast to mobile, flash title, default building.
+
 ## Important Workflows
+
+### Mobile Screaming Alarm
+
+1. Backend detects a critical gas reading (real or simulated) or publishes a dispatch alert.
+2. Backend broadcasts the event over WebSocket (`gas:alert`, `alert:mobile_emergency`).
+3. Mobile `HomeScreen` / `GasDashboardScreen` listens via `BackendService` streams.
+4. `alarm_overlay.dart` shows a full-screen siren overlay with TTS + audio playback until dismissed.
+5. Dismissal posts an acknowledgement to `/api/v1/gas/alerts/{id}/ack`.
 
 ### Mobile Man-Down SOS
 
-1. Mobile evacuation flow detects zero movement.
+1. Resident evacuation flow detects zero movement.
 2. Mobile calls `POST /api/alerts/trigger`.
-3. Backend creates a published dispatch alert with:
-   - user name
-   - user status (`Man Down`)
-   - mobility/safety level
-   - precise location
-4. Backend broadcasts `alert:mobile_emergency` over WebSocket.
-5. Dashboard displays the SOS alert and reporter metadata.
-6. If the user taps **I'M FINE**, mobile reports `Safe` and marks the latest SOS as `accidental`.
+3. Backend creates a published dispatch alert (user name, status `Man Down`, mobility level, location).
+4. Backend broadcasts `alert:mobile_emergency`.
+5. Dashboard shows the SOS alert and reporter metadata.
+6. Tapping **I'M FINE** reports `Safe` and marks the latest SOS as `accidental`.
 
 ### Copernicus Flood Screening
 
-1. A client requests flood data for a location or area.
-2. Backend queries Copernicus Data Space/Sentinel Hub for recent Sentinel-1 scenes.
-3. Backend classifies flood likelihood using VV backscatter water fraction and optional baseline comparison.
+1. Client requests flood data for a location or area.
+2. Backend queries Copernicus Data Space / Sentinel Hub for recent Sentinel-1 scenes.
+3. Backend classifies flood likelihood from VV backscatter water fraction with optional baseline comparison.
 4. Backend returns JSON results or PNG heatmap overlays.
 
 ### Dispatch Alert Lifecycle
-
-Alerts support these states:
 
 ```text
 draft -> review -> approved -> published -> updated/closed
 published -> accidental
 ```
 
-Mobile SOS alerts are created as `published`; user confirmation through **I'M FINE** changes them to `accidental`.
+Mobile SOS alerts are created as `published`; **I'M FINE** changes them to `accidental`.
 
 ## Documentation Index
 
@@ -153,8 +216,9 @@ flutter analyze
 
 ## Production Notes
 
-- Replace demo credentials and JWT secret before deployment.
+- Replace demo credentials and the JWT secret before deployment.
 - Store Copernicus, EFAS, and JWT secrets in environment variables or a secret manager.
+- Disable or guard the gas simulator (`set_simulator(None)`) in production; ingest only from real devices via `POST /readings/ingest`.
 - Use a production database instead of SQLite for concurrent multi-user deployment.
 - Put the backend behind TLS and configure strict CORS origins.
-- Validate flood thresholds with local hydrology data before operational use.
+- Validate flood thresholds with local hydrology data, and gas thresholds with the relevant safety standard (e.g. OSHA, EN 50194) before operational use.

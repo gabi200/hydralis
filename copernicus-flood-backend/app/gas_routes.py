@@ -10,6 +10,7 @@ from app.gas import (
     THRESHOLDS,
     alert_to_dict,
     classify,
+    get_simulator,
     reading_to_dict,
     sensor_to_dict,
     thresholds_for,
@@ -38,6 +39,12 @@ class RegisterDeviceRequest(BaseModel):
 
 class AckAlertRequest(BaseModel):
     device_id: str = Field(..., min_length=4, max_length=128)
+
+
+class DemoSpikeRequest(BaseModel):
+    sensor_id: str = Field(..., min_length=1)
+    severity: Literal["warning", "critical"] = Field(default="critical")
+    duration_cycles: int | None = Field(default=None, ge=1, le=20)
 
 
 @router.get("/sensors")
@@ -348,6 +355,41 @@ def list_acks(
             for row in rows
         ],
     }
+
+
+@router.post("/demo/spike", status_code=202)
+async def demo_spike(
+    request: DemoSpikeRequest,
+    conn: sqlite3.Connection = Depends(db),
+) -> dict[str, Any]:
+    """Force a deterministic gas alarm for demos.
+
+    Lets the dispatcher dashboard send a *specific* alarm (sensor + severity)
+    instead of waiting for the random simulator. Reuses the existing simulator
+    pipeline so the resulting ``gas:alert`` looks identical to a natural spike
+    on every connected client (mobile + web).
+    """
+    sensor = _require_sensor(conn, request.sensor_id)
+    simulator = get_simulator(manager)
+    simulator.force_spike(
+        sensor["id"],
+        severity=request.severity,
+        duration_cycles=request.duration_cycles,
+    )
+    return {
+        "scheduled": True,
+        "sensorId": sensor["id"],
+        "sensorType": sensor["sensor_type"],
+        "severity": request.severity,
+        "durationCycles": request.duration_cycles,
+    }
+
+
+@router.post("/demo/clear", status_code=202)
+async def demo_clear() -> dict[str, Any]:
+    simulator = get_simulator(manager)
+    simulator.clear_spike()
+    return {"cleared": True}
 
 
 @router.post("/readings/ingest", status_code=202)

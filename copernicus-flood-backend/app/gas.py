@@ -224,6 +224,40 @@ class GasSimulator:
             for resolved_payload in alerts_resolved:
                 await self._broadcaster.broadcast("gas:resolved", resolved_payload)
 
+    def force_spike(
+        self,
+        sensor_id: str,
+        severity: ReadingStatus = "critical",
+        duration_cycles: int | None = None,
+    ) -> None:
+        """Trigger an explicit demo spike for a known sensor.
+
+        Allows the dashboard to fire a deterministic alarm instead of waiting
+        for the random simulator. The next tick will see the spike and emit a
+        ``gas:alert`` exactly like the natural path.
+        """
+        if severity == "normal":
+            self._spike = None
+            return
+        cycles = duration_cycles or random.randint(
+            SPIKE_DURATION_CYCLES_MIN, SPIKE_DURATION_CYCLES_MAX
+        )
+        self._spike = {
+            "sensor_id": sensor_id,
+            "severity": severity,
+            "remaining": cycles,
+        }
+        self._cycles_since_spike = 0
+        logger.info(
+            "Gas simulator FORCED spike on %s severity=%s cycles=%d",
+            sensor_id,
+            severity,
+            cycles,
+        )
+
+    def clear_spike(self) -> None:
+        self._spike = None
+
     def _maybe_pick_spike(self, sensors: list[sqlite3.Row]) -> str | None:
         if self._spike is not None:
             self._spike["remaining"] -= 1
