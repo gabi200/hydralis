@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _refreshBuildingData();
       return;
     }
-    if (event != 'alert:updated') return;
+    if (event != 'alert:updated' && event != 'alert:new') return;
     final payload = data['payload'];
     if (payload == null) return;
     final broadcastSentRaw =
@@ -127,19 +127,54 @@ class _HomeScreenState extends State<HomeScreen> {
         broadcastSentRaw == '1';
     final status = (payload['status'] ?? '').toString().toLowerCase();
     if (!(broadcastSent && status == 'published')) return;
-    final type = (payload['type'] ?? '').toString();
-    if (!(type == 'evacuation' ||
-        type == 'flood' ||
-        type == 'flash-flood' ||
-        type == 'storm')) return;
+    final type = (payload['type'] ?? '').toString().toLowerCase();
+    // Ignore alerts that the mobile itself originated (SOS / man-down).
+    final createdBy = (payload['createdBy'] ?? payload['created_by'] ?? '')
+        .toString();
+    final title = (payload['title'] ?? '').toString();
+    final isMobileEmergency = title.startsWith('SOS:') ||
+        createdBy.startsWith('mob-');
+    if (isMobileEmergency) return;
+
+    // Residential broadcasts target areas; if affectedAreas exists, only show
+    // when our building's address or city appears in the list. Otherwise show
+    // global broadcasts.
+    final affectedAreasRaw =
+        payload['affectedAreas'] ?? payload['affected_areas'];
+    final affected = affectedAreasRaw is List
+        ? affectedAreasRaw.map((e) => e.toString().toLowerCase()).toList()
+        : <String>[];
+    final buildingName =
+        (_building?['locationName'] ?? '').toString().toLowerCase();
+    final buildingId = (_building?['buildingId'] ?? '').toString().toLowerCase();
+    final matchesArea = affected.isEmpty ||
+        affected.any((a) =>
+            buildingName.contains(a) ||
+            a.contains(buildingName) ||
+            buildingId.contains(a) ||
+            a.contains(buildingId));
+    if (!matchesArea) return;
+
+    final severity = type == 'evacuation' ? 'EMERGENCY' : 'WARNING';
+    final inferredTitle = type == 'evacuation'
+        ? 'EVACUATION ORDER'
+        : type == 'flood' || type == 'flash-flood'
+            ? 'FLOOD ALERT'
+            : type == 'storm'
+                ? 'STORM ALERT'
+                : title.isNotEmpty
+                    ? title
+                    : 'EMERGENCY ALERT';
     _showAlarm(
       AlarmPayload(
-        title: 'EVACUATION ORDER',
-        severity: 'EMERGENCY',
-        location: (payload['location'] ?? _building?['locationName'] ?? 'Your area')
+        title: inferredTitle,
+        severity: severity,
+        location: (payload['location'] ??
+                _building?['locationName'] ??
+                'Your area')
             .toString(),
         message: (payload['message'] ??
-                'Dispatcher ordered evacuation. Follow nearest safe route.')
+                'Dispatcher published an alert. Follow safety guidance.')
             .toString(),
         source: 'flood',
         receivedOn: BackendService().deviceLabel,
@@ -249,6 +284,152 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _openDemoAlarmSheet() {
+    final location = _building?['locationName']?.toString() ?? 'Demo building';
+    final scenarios = <_DemoScenario>[
+      _DemoScenario(
+        label: 'Methane (CH4) critical leak',
+        icon: Icons.local_fire_department_outlined,
+        color: AppColors.emergencyRed,
+        payload: AlarmPayload(
+          title: 'GAS ALERT',
+          severity: 'CRITICAL',
+          location: location,
+          subtitle: 'Boiler room sensor GS-001',
+          sensorType: 'CH4',
+          valuePpm: 5400,
+          threshold: 5000,
+          message: 'Evacuate the area immediately. Do not use elevators.',
+          receivedOn: BackendService().deviceLabel,
+          source: 'gas',
+        ),
+      ),
+      _DemoScenario(
+        label: 'Carbon monoxide (CO) spike',
+        icon: Icons.cloud_outlined,
+        color: AppColors.needHelpOrange,
+        payload: AlarmPayload(
+          title: 'CO ALERT',
+          severity: 'CRITICAL',
+          location: location,
+          subtitle: 'Underground parking sensor GS-002',
+          sensorType: 'CO',
+          valuePpm: 240,
+          threshold: 200,
+          message: 'Open ventilation, evacuate parking levels immediately.',
+          receivedOn: BackendService().deviceLabel,
+          source: 'gas',
+        ),
+      ),
+      _DemoScenario(
+        label: 'LPG tank leak (warning)',
+        icon: Icons.propane_tank,
+        color: AppColors.monitorAmber,
+        payload: AlarmPayload(
+          title: 'LPG ALERT',
+          severity: 'WARNING',
+          location: location,
+          subtitle: 'Kitchen riser sensor GS-007',
+          sensorType: 'LPG',
+          valuePpm: 1800,
+          threshold: 1000,
+          message: 'Shut off LPG supply. Avoid sparks. Ventilate the area.',
+          receivedOn: BackendService().deviceLabel,
+          source: 'gas',
+        ),
+      ),
+      _DemoScenario(
+        label: 'Flood evacuation order',
+        icon: Icons.water,
+        color: AppColors.skyDeep,
+        payload: AlarmPayload(
+          title: 'EVACUATION ORDER',
+          severity: 'EMERGENCY',
+          location: location,
+          message:
+              'Dispatcher ordered immediate evacuation. Move to assembly point.',
+          receivedOn: BackendService().deviceLabel,
+          source: 'flood',
+        ),
+      ),
+      _DemoScenario(
+        label: 'Residential broadcast (storm)',
+        icon: Icons.thunderstorm_outlined,
+        color: AppColors.oceanMid,
+        payload: AlarmPayload(
+          title: 'STORM ALERT',
+          severity: 'WARNING',
+          location: location,
+          message:
+              'Severe storm forecast in your building area. Stay indoors and follow updates.',
+          receivedOn: BackendService().deviceLabel,
+          source: 'flood',
+        ),
+      ),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text('Run a demo alarm', style: AppTextStyles.titleMD),
+                const SizedBox(height: 4),
+                Text(
+                  'Choose a scenario to preview the alarm experience end-to-end. '
+                  'No telemetry is sent to dispatch.',
+                  style: AppTextStyles.body,
+                ),
+                const SizedBox(height: 12),
+                ...scenarios.map((s) {
+                  return ListTile(
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: s.color.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                      ),
+                      child: Icon(s.icon, color: s.color),
+                    ),
+                    title: Text(s.label, style: AppTextStyles.bodyStrong),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showAlarm(s.payload);
+                    },
+                  );
+                }),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -266,8 +447,10 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: AppColors.surface,
       drawer: _buildDrawer(),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: AppColors.surface,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         leading: Builder(
           builder: (ctx) => IconButton(
             icon: const Icon(Icons.menu_rounded, color: AppColors.ink),
@@ -278,8 +461,8 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 28,
-              height: 28,
+              width: 24,
+              height: 24,
               decoration: BoxDecoration(
                 gradient: AppGradients.ocean,
                 borderRadius: BorderRadius.circular(AppRadii.sm),
@@ -287,11 +470,16 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Icon(
                 Icons.water_drop_rounded,
                 color: Colors.white,
-                size: 16,
+                size: 14,
               ),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Text('Hydralis', style: AppTextStyles.titleLG),
+            const SizedBox(width: 8),
+            Text(
+              'Hydralis',
+              style: AppTextStyles.titleMD.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
         centerTitle: true,
@@ -323,14 +511,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      extendBodyBehindAppBar: true,
       body: RefreshIndicator(
         onRefresh: _refreshBuildingData,
         child: ListView(
-          padding: const EdgeInsets.only(
-            top: kToolbarHeight + 8,
-            bottom: 32,
-          ),
+          padding: const EdgeInsets.only(top: 8, bottom: 32),
           children: [
             _buildHeroBuildingCard(),
             const SizedBox(height: AppSpacing.md),
@@ -1069,23 +1253,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.bug_report_outlined),
-              title: const Text('Test alarm'),
+              title: const Text('Run demo alarm'),
+              subtitle: const Text('Pick a scenario'),
               onTap: () {
                 Navigator.pop(context);
-                _showAlarm(
-                  AlarmPayload(
-                    title: 'TEST ALARM',
-                    severity: 'CRITICAL',
-                    location: _building?['locationName']?.toString() ?? 'Demo',
-                    subtitle: 'Triggered manually for verification',
-                    sensorType: 'CH4',
-                    valuePpm: 5400,
-                    threshold: 5000,
-                    message:
-                        'This is a drill. Tap acknowledge when ready to clear.',
-                    receivedOn: BackendService().deviceLabel,
-                  ),
-                );
+                _openDemoAlarmSheet();
               },
             ),
           ],
@@ -1094,3 +1266,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
+class _DemoScenario {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final AlarmPayload payload;
+  const _DemoScenario({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.payload,
+  });
+}
+

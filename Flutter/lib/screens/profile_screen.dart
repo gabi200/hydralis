@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/backend_service.dart';
 import '../theme.dart';
 import '../widgets/custom_button.dart';
+import 'building_select_screen.dart';
+import 'mode_select_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -15,13 +18,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _gravity = 'Low';
   final List<String> _gravityOptions = ['Low', 'Medium', 'High', 'Extreme'];
 
+  // Gas profile
+  late TextEditingController _deviceLabelController;
+  String _currentMode = 'resident';
+  String _buildingLabel = 'Not selected';
+  String? _buildingId;
+
   static const String _userName = 'Andrei Ionescu';
   static const String _userEmail = 'andrei.ionescu@hydralis.com';
+
+  static const _modeOptions = <_ModeOption>[
+    _ModeOption(
+      value: 'resident',
+      label: 'Resident',
+      icon: Icons.apartment_rounded,
+      color: AppColors.skyDeep,
+    ),
+    _ModeOption(
+      value: 'flood',
+      label: 'Field Worker',
+      icon: Icons.water,
+      color: AppColors.oceanMid,
+    ),
+    _ModeOption(
+      value: 'gas',
+      label: 'Gas Operator',
+      icon: Icons.local_fire_department,
+      color: AppColors.emergencyRed,
+    ),
+  ];
 
   @override
   void initState() {
     super.initState();
+    _deviceLabelController = TextEditingController(
+      text: BackendService().deviceLabel ?? '',
+    );
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _deviceLabelController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -29,17 +68,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {
       _hasMobilityIssues = prefs.getBool('hasMobilityIssues') ?? false;
       _gravity = prefs.getString('mobilityGravity') ?? 'Low';
+      _currentMode = prefs.getString('hydralis_mode') ?? 'resident';
+      _buildingId = BackendService().selectedBuildingId;
     });
+    final buildings = await BackendService().fetchBuildings();
+    final id = _buildingId;
+    if (id != null && mounted) {
+      final match = buildings.firstWhere(
+        (b) => b['buildingId'] == id,
+        orElse: () => <String, dynamic>{},
+      );
+      setState(() {
+        _buildingLabel = match['locationName']?.toString() ?? id;
+      });
+    }
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('hasMobilityIssues', _hasMobilityIssues);
     await prefs.setString('mobilityGravity', _gravity);
+    final label = _deviceLabelController.text.trim();
+    if (label.isNotEmpty && label != BackendService().deviceLabel) {
+      await BackendService().setDeviceLabel(label);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile updated successfully')),
       );
+    }
+  }
+
+  Future<void> _changeMode(String mode) async {
+    if (mode == _currentMode) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('hydralis_mode', mode);
+    if (!mounted) return;
+    setState(() => _currentMode = mode);
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const ModeSelectScreen()),
+    );
+  }
+
+  Future<void> _pickBuilding() async {
+    final buildings = await BackendService().fetchBuildings();
+    if (!mounted) return;
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BuildingSelectScreen(
+          buildings: buildings,
+          selectedId: _buildingId,
+        ),
+      ),
+    );
+    if (result != null) {
+      final id = result['buildingId']?.toString();
+      await BackendService().setSelectedBuilding(id);
+      setState(() {
+        _buildingId = id;
+        _buildingLabel =
+            result['locationName']?.toString() ?? id ?? 'Not selected';
+      });
     }
   }
 
@@ -102,6 +193,115 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           icon: Icons.email_outlined,
                           label: 'Email',
                           value: _userEmail,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _buildSectionCard(
+                    title: 'App Mode',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Switch how the app behaves for you.',
+                          style: AppTextStyles.body,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          children: _modeOptions.map(_modeChip).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _buildSectionCard(
+                    title: 'Gas Safety Profile',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInfoTile(
+                          icon: Icons.cellphone_link,
+                          label: 'Device ID',
+                          value: BackendService().deviceId ?? '—',
+                        ),
+                        const Divider(
+                          color: AppColors.divider,
+                          height: AppSpacing.lg,
+                        ),
+                        const Text(
+                          'Device label',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.inkMuted,
+                            letterSpacing: 1.2,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _deviceLabelController,
+                          decoration: InputDecoration(
+                            hintText: 'e.g. Phone iOS-AB12',
+                            filled: true,
+                            fillColor: AppColors.inputFill,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppRadii.md,
+                              ),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        InkWell(
+                          onTap: _pickBuilding,
+                          borderRadius: BorderRadius.circular(AppRadii.md),
+                          child: Container(
+                            padding: const EdgeInsets.all(AppSpacing.md),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceAlt,
+                              borderRadius: BorderRadius.circular(AppRadii.md),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.skyCyan.withOpacity(0.18),
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadii.md),
+                                  ),
+                                  child: const Icon(
+                                    Icons.apartment_rounded,
+                                    color: AppColors.skyDeep,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.md),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Building',
+                                        style: AppTextStyles.caption,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _buildingLabel,
+                                        style: AppTextStyles.bodyStrong,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(Icons.chevron_right_rounded),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -276,6 +476,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _modeChip(_ModeOption option) {
+    final selected = _currentMode == option.value;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        onTap: () => _changeMode(option.value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm + 2,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? option.color : Colors.white,
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            border: Border.all(
+              color: selected ? option.color : AppColors.border,
+              width: 1.4,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                option.icon,
+                color: selected ? Colors.white : option.color,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                option.label,
+                style: AppTextStyles.bodyStrong.copyWith(
+                  color: selected ? Colors.white : AppColors.ink,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMobilitySwitch() {
     return Row(
       children: [
@@ -340,6 +584,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+}
+
+class _ModeOption {
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color color;
+  const _ModeOption({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
 }
 
 class _SeverityChip extends StatelessWidget {
