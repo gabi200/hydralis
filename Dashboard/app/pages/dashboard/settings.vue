@@ -185,6 +185,23 @@
         </div>
 
         <div class="space-y-3 pt-2 border-t border-(--card-border)">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-(--label-text)">
+                Auto-simulate random spikes
+              </p>
+              <p class="text-xs text-(--hint-text) mt-0.5">
+                When off, only the Demo Alarm Trigger fires alarms — useful for
+                deterministic demos. Backend default: <strong>off</strong>.
+              </p>
+            </div>
+            <Switch
+              v-model="autoSpikesEnabled"
+              color="warning"
+              :loading="autoSpikesLoading"
+              @update:model-value="onAutoSpikesToggle"
+            />
+          </div>
           <Switch
             v-model="gasPrefs.autoArmSiren"
             color="danger"
@@ -283,10 +300,45 @@ const setDefaultBuilding = (id: string) => {
 const refreshGasProfile = async () => {
   gasLoading.value = true;
   try {
-    await Promise.all([refreshBuildings(), refreshDevices()]);
+    await Promise.all([
+      refreshBuildings(),
+      refreshDevices(),
+      fetchAutoSpikes(),
+    ]);
     gasSummary.value = await fetchSummary();
   } finally {
     gasLoading.value = false;
+  }
+};
+
+const { get: apiGet, post: apiPost } = useApi();
+const autoSpikesEnabled = ref(false);
+const autoSpikesLoading = ref(false);
+
+const fetchAutoSpikes = async () => {
+  try {
+    const res = await apiGet<{ enabled: boolean }>(
+      "/api/v1/gas/demo/auto-spikes",
+    );
+    autoSpikesEnabled.value = res.enabled;
+  } catch (err) {
+    console.error("Failed to fetch auto-spike state", err);
+  }
+};
+
+const onAutoSpikesToggle = async (val: boolean) => {
+  autoSpikesLoading.value = true;
+  try {
+    const res = await apiPost<{ enabled: boolean }>(
+      "/api/v1/gas/demo/auto-spikes",
+      { enabled: val },
+    );
+    autoSpikesEnabled.value = res.enabled;
+  } catch (err) {
+    console.error("Failed to toggle auto spikes", err);
+    autoSpikesEnabled.value = !val;
+  } finally {
+    autoSpikesLoading.value = false;
   }
 };
 

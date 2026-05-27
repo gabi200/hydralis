@@ -392,6 +392,23 @@ async def demo_clear() -> dict[str, Any]:
     return {"cleared": True}
 
 
+class AutoSpikesRequest(BaseModel):
+    enabled: bool
+
+
+@router.get("/demo/auto-spikes")
+async def get_auto_spikes() -> dict[str, Any]:
+    simulator = get_simulator(manager)
+    return {"enabled": simulator.auto_spikes_enabled}
+
+
+@router.post("/demo/auto-spikes")
+async def set_auto_spikes(request: AutoSpikesRequest) -> dict[str, Any]:
+    simulator = get_simulator(manager)
+    simulator.set_auto_spikes(request.enabled)
+    return {"enabled": simulator.auto_spikes_enabled}
+
+
 @router.post("/readings/ingest", status_code=202)
 async def ingest_reading(
     request: IngestReadingRequest,

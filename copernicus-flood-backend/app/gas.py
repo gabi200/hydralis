@@ -118,6 +118,7 @@ class GasSimulator:
         self._broadcaster = broadcaster
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        self._auto_spikes_enabled = False
         self._spike: dict[str, Any] | None = None
         self._cycles_since_spike = 0
 
@@ -258,10 +259,24 @@ class GasSimulator:
     def clear_spike(self) -> None:
         self._spike = None
 
+    @property
+    def auto_spikes_enabled(self) -> bool:
+        return self._auto_spikes_enabled
+
+    def set_auto_spikes(self, enabled: bool) -> None:
+        self._auto_spikes_enabled = enabled
+        if not enabled:
+            # Cancel any pending random pick so the next tick is quiet.
+            self._cycles_since_spike = 0
+        logger.info("Gas simulator auto spikes %s", "ENABLED" if enabled else "DISABLED")
+
     def _maybe_pick_spike(self, sensors: list[sqlite3.Row]) -> str | None:
         if self._spike is not None:
             self._spike["remaining"] -= 1
             return self._spike["sensor_id"]
+
+        if not self._auto_spikes_enabled:
+            return None
 
         if self._cycles_since_spike < SPIKE_INTERVAL_SECONDS:
             return None
