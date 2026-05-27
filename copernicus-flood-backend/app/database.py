@@ -184,6 +184,67 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             acknowledged INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS gas_sensors (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            location_name TEXT NOT NULL,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            floor INTEGER NOT NULL DEFAULT 0,
+            sensor_type TEXT NOT NULL CHECK (sensor_type IN ('CH4', 'CO', 'LPG', 'MULTI')),
+            status TEXT NOT NULL CHECK (status IN ('online', 'offline', 'alert')),
+            last_reading REAL,
+            last_updated TEXT,
+            building_id TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS gas_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id TEXT NOT NULL REFERENCES gas_sensors(id) ON DELETE CASCADE,
+            sensor_type TEXT NOT NULL,
+            value_ppm REAL NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('normal', 'warning', 'critical')),
+            timestamp TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS gas_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id TEXT NOT NULL,
+            sensor_type TEXT NOT NULL,
+            value_ppm REAL NOT NULL,
+            threshold REAL NOT NULL,
+            location TEXT NOT NULL,
+            triggered_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolved_by TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gas_readings_sensor_time
+            ON gas_readings(sensor_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_gas_alerts_active
+            ON gas_alerts(sensor_id, resolved_at);
+
+        CREATE TABLE IF NOT EXISTS gas_devices (
+            device_id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            platform TEXT,
+            owner TEXT,
+            registered_at TEXT NOT NULL,
+            last_seen_at TEXT,
+            status TEXT NOT NULL DEFAULT 'active'
+        );
+
+        CREATE TABLE IF NOT EXISTS gas_alert_acks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            acknowledged_at TEXT NOT NULL,
+            UNIQUE (alert_id, device_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gas_alert_acks_alert
+            ON gas_alert_acks(alert_id);
         """
     )
     _ensure_column(conn, "alerts", "user_name", "TEXT")
@@ -740,6 +801,176 @@ def seed_database(conn: sqlite3.Connection) -> None:
         ],
     )
     _backfill_mobile_alert_metadata(conn)
+    _seed_gas_sensors(conn, now)
+
+
+def _seed_gas_sensors(conn: sqlite3.Connection, now: str) -> None:
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO gas_sensors (
+            id, name, location_name, latitude, longitude, floor,
+            sensor_type, status, last_reading, last_updated, building_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "GS-001",
+                "Titan Residence - Boiler Room",
+                "Bd. 1 Decembrie 1918, Titan, Sector 3",
+                44.4232,
+                26.1665,
+                -1,
+                "CH4",
+                "online",
+                200.0,
+                now,
+                "BLD-TITAN",
+            ),
+            (
+                "GS-002",
+                "Titan Residence - Underground Parking",
+                "Bd. 1 Decembrie 1918, Titan, Sector 3",
+                44.4234,
+                26.1662,
+                -1,
+                "CO",
+                "online",
+                8.0,
+                now,
+                "BLD-TITAN",
+            ),
+            (
+                "GS-003",
+                "Titan Residence - Roof Plant Room",
+                "Bd. 1 Decembrie 1918, Titan, Sector 3",
+                44.4231,
+                26.1668,
+                12,
+                "MULTI",
+                "online",
+                210.0,
+                now,
+                "BLD-TITAN",
+            ),
+            (
+                "GS-004",
+                "Floreasca Business Park - Lobby",
+                "Calea Floreasca 169, Sector 1",
+                44.4787,
+                26.1019,
+                0,
+                "MULTI",
+                "online",
+                205.0,
+                now,
+                "BLD-FLOREASCA",
+            ),
+            (
+                "GS-005",
+                "Floreasca Business Park - Server Room",
+                "Calea Floreasca 169, Sector 1",
+                44.4789,
+                26.1023,
+                5,
+                "MULTI",
+                "online",
+                190.0,
+                now,
+                "BLD-FLOREASCA",
+            ),
+            (
+                "GS-006",
+                "Floreasca Business Park - Generator Room",
+                "Calea Floreasca 169, Sector 1",
+                44.4785,
+                26.1016,
+                -1,
+                "CO",
+                "online",
+                10.0,
+                now,
+                "BLD-FLOREASCA",
+            ),
+            (
+                "GS-007",
+                "Militari Residence - Kitchen Riser Floor 3",
+                "Bd. Iuliu Maniu 84, Militari, Sector 6",
+                44.4350,
+                26.0341,
+                3,
+                "CH4",
+                "online",
+                205.0,
+                now,
+                "BLD-MILITARI",
+            ),
+            (
+                "GS-008",
+                "Militari Residence - LPG Cylinder Cabinet",
+                "Bd. Iuliu Maniu 84, Militari, Sector 6",
+                44.4348,
+                26.0339,
+                -1,
+                "LPG",
+                "online",
+                155.0,
+                now,
+                "BLD-MILITARI",
+            ),
+            (
+                "GS-009",
+                "Unirii Square Mall - Food Court CH4",
+                "Piata Unirii 1, Sector 4",
+                44.4276,
+                26.1027,
+                1,
+                "CH4",
+                "online",
+                215.0,
+                now,
+                "BLD-UNIRII",
+            ),
+            (
+                "GS-010",
+                "Unirii Square Mall - Loading Bay CO",
+                "Piata Unirii 1, Sector 4",
+                44.4274,
+                26.1024,
+                -1,
+                "CO",
+                "online",
+                12.0,
+                now,
+                "BLD-UNIRII",
+            ),
+            (
+                "GS-011",
+                "Politehnica Campus - Chem Lab MULTI",
+                "Splaiul Independentei 313, Sector 6",
+                44.4378,
+                26.0500,
+                2,
+                "MULTI",
+                "online",
+                198.0,
+                now,
+                "BLD-POLITEHNICA",
+            ),
+            (
+                "GS-012",
+                "Politehnica Campus - LPG Workshop",
+                "Splaiul Independentei 313, Sector 6",
+                44.4376,
+                26.0503,
+                0,
+                "LPG",
+                "online",
+                160.0,
+                now,
+                "BLD-POLITEHNICA",
+            ),
+        ],
+    )
 
 
 def _backfill_mobile_alert_metadata(conn: sqlite3.Connection) -> None:

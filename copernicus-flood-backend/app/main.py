@@ -17,7 +17,9 @@ from app.database import initialize_database
 from app.efas import EfasMapRequest, get_efas_layers, get_location_warnings, get_map_png
 from app.exceptions import AppError
 from app.flood import build_heatmap_png, detect_flood
-from app.hydralis import router as hydralis_router
+from app.gas import GasSimulator, set_simulator
+from app.gas_routes import router as gas_router
+from app.hydralis import manager as ws_manager, router as hydralis_router
 from app.logging_setup import REQUEST_LOGGER_NAME, configure_logging
 from app.map_page import MAP_HTML
 from app.mobile import router as mobile_router
@@ -49,8 +51,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     initialize_database(settings)
     startup_logger.info("database initialized")
-    yield
-    startup_logger.info("shutdown complete")
+    simulator: GasSimulator | None = None
+    if settings.demo_mode:
+        simulator = GasSimulator(settings, ws_manager)
+        set_simulator(simulator)
+        simulator.start()
+        startup_logger.info("gas simulator started (demo mode)")
+    try:
+        yield
+    finally:
+        if simulator is not None:
+            await simulator.stop()
+            set_simulator(None)
+        startup_logger.info("shutdown complete")
 
 
 app = FastAPI(
@@ -109,6 +122,7 @@ app.add_middleware(
 
 app.include_router(hydralis_router)
 app.include_router(mobile_router)
+app.include_router(gas_router)
 
 
 async def copernicus_client(

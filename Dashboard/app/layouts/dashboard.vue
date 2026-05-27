@@ -118,7 +118,9 @@
                 ? "Dispatcher"
                 : isIndustrial
                   ? "Industrial"
-                  : "Admin"
+                  : isGas
+                    ? "Gas Operator"
+                    : "Admin"
             }}</span
           >
         </div>
@@ -171,6 +173,39 @@
             to="/dashboard/industrial/sensors"
             icon="mdi:access-point"
             :label="$t('nav.sensors')"
+          />
+        </template>
+
+        <template v-if="isGas || isAdmin">
+          <div v-if="!isCollapsed" class="px-2 mt-4 mb-1">
+            <span
+              class="text-[10px] font-semibold text-(--hint-text) uppercase tracking-widest"
+              >Gas Safety</span
+            >
+          </div>
+          <SidebarItem
+            to="/dashboard/gas"
+            icon="mdi:fire"
+            label="Gas Monitoring"
+          >
+            <template #suffix>
+              <span
+                v-if="gasActiveAlerts > 0"
+                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-(--btn-danger-bg) text-[10px] font-bold text-white px-1"
+              >
+                {{ gasActiveAlerts }}
+              </span>
+            </template>
+          </SidebarItem>
+          <SidebarItem
+            to="/dashboard/gas/devices"
+            icon="mdi:cellphone-link"
+            label="Connected Devices"
+          />
+          <SidebarItem
+            to="/dashboard/gas/history"
+            icon="mdi:history"
+            label="Alert History"
           />
         </template>
 
@@ -303,6 +338,7 @@ const {
   currentRole,
   isDispatcher,
   isIndustrial,
+  isGas,
   isAdmin,
   roleLabel,
   roleIcon,
@@ -314,6 +350,8 @@ const {
   mobileEmergencies,
   updateAlertStatus,
 } = useAlerts();
+const { activeAlertCount: gasActiveAlertsRef } = useGasSensors();
+const gasActiveAlerts = computed(() => gasActiveAlertsRef.value);
 const { connect: connectStream, disconnect: disconnectStream } = useStream();
 
 const sessionCookie = useCookie<string | null>(AUTH_USER_COOKIE);
@@ -335,9 +373,10 @@ const changeMode = () => {
   colorMode.preference = modes[(current + 1) % modes.length]!;
 };
 
-const roleOrder: Array<"dispatcher" | "industrial" | "admin"> = [
+const roleOrder: Array<"dispatcher" | "industrial" | "gas" | "admin"> = [
   "dispatcher",
   "industrial",
+  "gas",
   "admin",
 ];
 const cycleRole = () => {
@@ -351,6 +390,9 @@ const currentPageTitle = computed(() => {
   if (path.includes("/alerts")) return t("nav.alerts");
   if (path.includes("/map")) return t("nav.map");
   if (path.includes("/satellite")) return t("nav.satellite");
+  if (path.includes("/gas/devices")) return "Connected Devices";
+  if (path.includes("/gas/history")) return "Alert History";
+  if (path.includes("/gas")) return "Gas Monitoring";
   if (path.includes("/industrial/factories")) return t("nav.factories");
   if (path.includes("/industrial/sensors")) return t("nav.sensors");
   if (path.includes("/industrial")) return t("nav.industrial");

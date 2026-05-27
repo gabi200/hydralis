@@ -45,6 +45,7 @@ class Settings:
     cors_origins: tuple[str, ...] = tuple(_split_csv(os.getenv("CORS_ORIGINS")) or ["*"])
     database_path: str = os.getenv("DATABASE_PATH", "hydralis.db")
     jwt_secret: str = os.getenv("JWT_SECRET", "change-this-dev-secret")
+    demo_mode: bool = os.getenv("DEMO_MODE", "true").lower() in ("1", "true", "yes", "on")
 
 
 @lru_cache

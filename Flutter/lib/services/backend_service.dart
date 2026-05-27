@@ -1,22 +1,33 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:math';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:latlong2/latlong.dart';
+
+import 'api_config.dart';
 
 class BackendService {
   static final BackendService _instance = BackendService._internal();
   factory BackendService() => _instance;
   BackendService._internal();
 
-  final String baseUrl = 'http://10.0.2.2:8000/api';
-  final String apiV1Url = 'http://10.0.2.2:8000/api/v1';
-  final String wsUrl = 'ws://10.0.2.2:8000/api/v1/stream';
+  final String baseUrl = ApiConfig.restRoot;
+  final String apiV1Url = ApiConfig.apiV1;
+  final String wsUrl = ApiConfig.wsStream;
 
   String? _token;
   String? _userId;
   String? _userName;
+  String? _deviceId;
+  String? _deviceLabel;
   WebSocketChannel? _channel;
+  Timer? _heartbeatTimer;
+
+  String? get deviceId => _deviceId;
+  String? get deviceLabel => _deviceLabel;
 
   // Stream controller to broadcast events from the WebSocket
   final _eventController = StreamController<Map<String, dynamic>>.broadcast();
@@ -28,9 +39,113 @@ class BackendService {
   Stream<Map<String, dynamic>> get alertStream => _alertController.stream;
   final List<Map<String, dynamic>> activeAlerts = [];
 
+  // Gas alert stream — broadcast every gas:alert / gas:resolved event.
+  final _gasAlertController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get gasAlertStream => _gasAlertController.stream;
+  final List<Map<String, dynamic>> activeGasAlerts = [];
+
   Future<void> initialize() async {
     await _authenticateDummyUser();
+    await _ensureGasDeviceRegistered();
     _connectWebSocket();
+    _startHeartbeat();
+  }
+
+  Future<void> _ensureGasDeviceRegistered() async {
+    final prefs = await SharedPreferences.getInstance();
+    _deviceId = prefs.getString('gas_device_id');
+    if (_deviceId == null) {
+      _deviceId = _generateDeviceId();
+      await prefs.setString('gas_device_id', _deviceId!);
+    }
+    _deviceLabel = prefs.getString('gas_device_label');
+    if (_deviceLabel == null) {
+      final platform = _platformName();
+      final suffix = _deviceId!.substring(_deviceId!.length - 4).toUpperCase();
+      _deviceLabel = 'Phone $platform-$suffix';
+      await prefs.setString('gas_device_label', _deviceLabel!);
+    }
+    await _registerGasDevice();
+  }
+
+  String _generateDeviceId() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(12, (_) => rng.nextInt(256));
+    return 'dev-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+  }
+
+  String _platformName() {
+    try {
+      if (Platform.isAndroid) return 'Android';
+      if (Platform.isIOS) return 'iOS';
+      if (Platform.isMacOS) return 'macOS';
+      if (Platform.isWindows) return 'Windows';
+      if (Platform.isLinux) return 'Linux';
+    } catch (_) {}
+    return 'Mobile';
+  }
+
+  Future<void> _registerGasDevice() async {
+    if (_deviceId == null || _deviceLabel == null) return;
+    try {
+      await http.post(
+        Uri.parse('$apiV1Url/gas/devices'),
+        headers: {
+          "Content-Type": "application/json",
+          if (_token != null) "Authorization": "Bearer $_token",
+        },
+        body: jsonEncode({
+          "device_id": _deviceId,
+          "label": _deviceLabel,
+          "platform": _platformName(),
+          "owner": _userName,
+        }),
+      );
+    } catch (e) {
+      print("Gas device register error: $e");
+    }
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+      if (_deviceId == null) return;
+      try {
+        await http.post(
+          Uri.parse('$apiV1Url/gas/devices/$_deviceId/heartbeat'),
+          headers: {
+            "Content-Type": "application/json",
+            if (_token != null) "Authorization": "Bearer $_token",
+          },
+        );
+      } catch (_) {}
+    });
+  }
+
+  Future<void> setDeviceLabel(String label) async {
+    final prefs = await SharedPreferences.getInstance();
+    _deviceLabel = label;
+    await prefs.setString('gas_device_label', label);
+    await _registerGasDevice();
+  }
+
+  Future<bool> ackGasAlert(int alertId) async {
+    if (_deviceId == null) return false;
+    try {
+      final res = await http.post(
+        Uri.parse('$apiV1Url/gas/alerts/$alertId/ack'),
+        headers: {
+          "Content-Type": "application/json",
+          if (_token != null) "Authorization": "Bearer $_token",
+        },
+        body: jsonEncode({"device_id": _deviceId}),
+      );
+      return res.statusCode == 200 || res.statusCode == 201;
+    } catch (e) {
+      print("Gas ack error: $e");
+      return false;
+    }
   }
 
   Future<void> _authenticateDummyUser() async {
@@ -99,6 +214,33 @@ class BackendService {
             if (eventType == 'user:status_emergency') {
               activeAlerts.add(data);
               _alertController.add(data);
+            }
+
+            if (eventType == 'gas:alert') {
+              final payload = data['payload'] is Map
+                  ? Map<String, dynamic>.from(data['payload'])
+                  : <String, dynamic>{};
+              activeGasAlerts.add(payload);
+              _gasAlertController.add({
+                'event': 'gas:alert',
+                'payload': payload,
+              });
+            }
+
+            if (eventType == 'gas:resolved') {
+              final payload = data['payload'] is Map
+                  ? Map<String, dynamic>.from(data['payload'])
+                  : <String, dynamic>{};
+              final sensorId = payload['sensorId'];
+              if (sensorId != null) {
+                activeGasAlerts.removeWhere(
+                  (alert) => alert['sensorId'] == sensorId,
+                );
+              }
+              _gasAlertController.add({
+                'event': 'gas:resolved',
+                'payload': payload,
+              });
             }
           } catch (e) {
             print("WebSocket parse error: $e");

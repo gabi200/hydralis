@@ -1,0 +1,37 @@
+# Auto-TLS reverse proxy for the Hydralis backend.
+# Caddy issues a Let's Encrypt certificate for HYDRALIS_DOMAIN on first start
+# (port 80 and 443 must be reachable from the public internet for ACME).
+#
+# WebSocket upgrades are passed through unchanged — `reverse_proxy` handles
+# the Upgrade / Connection headers automatically.
+
+{
+    email {$HYDRALIS_TLS_EMAIL}
+    # Uncomment for ACME staging while testing to avoid Let's Encrypt rate limits:
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$HYDRALIS_DOMAIN} {
+    encode gzip zstd
+
+    @health path /health
+    handle @health {
+        reverse_proxy backend:8000
+    }
+
+    handle /api/* {
+        reverse_proxy backend:8000 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle {
+        respond "Hydralis backend. See /health or /api/v1/*." 200
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

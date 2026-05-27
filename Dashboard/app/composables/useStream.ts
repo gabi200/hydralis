@@ -2,6 +2,7 @@ export const useStream = () => {
   const config = useRuntimeConfig();
   const { refreshAlerts } = useAlerts();
   const { refreshLocations } = useSafeLocations();
+  const gas = useGasSensors();
   const ws = useState<WebSocket | null>("ws-stream", () => null);
   const connected = useState("ws-connected", () => false);
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -44,6 +45,26 @@ export const useStream = () => {
 
         if (data.event === "location:occupancy_update") {
           refreshLocations();
+        }
+
+        if (data.event === "gas:reading_update") {
+          gas.applyReadingUpdate(data.payload);
+        }
+
+        if (data.event === "gas:alert") {
+          gas.applyAlert(data.payload);
+        }
+
+        if (data.event === "gas:resolved") {
+          gas.applyResolved(data.payload);
+        }
+
+        if (data.event === "gas:alert_ack") {
+          gas.applyAck(data.payload);
+        }
+
+        if (data.event === "gas:device_registered") {
+          gas.applyDeviceRegistered(data.payload);
         }
       } catch {
         // ignore malformed messages

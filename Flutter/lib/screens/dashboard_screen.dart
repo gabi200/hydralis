@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/backend_service.dart';
 import '../theme.dart';
 import 'alert_screen.dart';
+import 'gas_dashboard_screen.dart';
+import 'mode_select_screen.dart';
 import 'profile_screen.dart';
 
 enum DemoState {
@@ -37,7 +40,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _copernicusRisk = 'LOADING...';
   String? _activeAlertMessage;
   StreamSubscription? _wsSubscription;
+  StreamSubscription? _gasSubscription;
   Timer? _telemetryTimer;
+
+  // Active gas alerts shown as banners until resolved or dismissed.
+  final List<Map<String, dynamic>> _activeGasAlerts = [];
+  final AudioPlayer _gasAudioPlayer = AudioPlayer();
 
   // Simulated movement state
   LatLng _workerPosition = const LatLng(45.4353, 28.0080);
@@ -99,6 +107,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Telemetry reporting
     _telemetryTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       BackendService().postUserStatus(_workerPosition, _currentStatus);
+    });
+
+    // Listen to gas alerts from the backend simulator.
+    _gasSubscription = BackendService().gasAlertStream.listen((data) {
+      if (!mounted) return;
+      final event = data['event'];
+      final payload = data['payload'] is Map
+          ? Map<String, dynamic>.from(data['payload'] as Map)
+          : <String, dynamic>{};
+      if (event == 'gas:alert') {
+        _handleGasAlert(payload);
+      } else if (event == 'gas:resolved') {
+        _handleGasResolved(payload);
+      }
     });
 
     // Listen to WebSocket events from Dispatcher
@@ -190,7 +212,146 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _manDownTimer?.cancel();
     _telemetryTimer?.cancel();
     _wsSubscription?.cancel();
+    _gasSubscription?.cancel();
+    _gasAudioPlayer.dispose();
     super.dispose();
+  }
+
+  void _handleGasAlert(Map<String, dynamic> payload) {
+    final sensorId = payload['sensorId']?.toString();
+    if (sensorId == null) return;
+    setState(() {
+      _activeGasAlerts.removeWhere((a) => a['sensorId'] == sensorId);
+      _activeGasAlerts.add(payload);
+    });
+
+    final sensorType = payload['sensorType']?.toString() ?? 'gas';
+    final location = (payload['locationName'] ?? payload['location'] ?? '')
+        .toString();
+    final value = payload['valuePpm'];
+    final spokenValue = value is num ? value.toStringAsFixed(0) : '$value';
+    final spoken =
+        'Gas alert at $location. $sensorType reading $spokenValue parts per million. Evacuate the area immediately.';
+    _flutterTts.speak(spoken);
+
+    try {
+      _gasAudioPlayer.stop();
+      _gasAudioPlayer.setReleaseMode(ReleaseMode.loop);
+      // Optional siren asset — silent fallback if not bundled.
+      _gasAudioPlayer.play(AssetSource('alarm.mp3')).catchError((_) {});
+    } catch (_) {
+      // ignore audio failures
+    }
+
+    // Automatically acknowledge the alert with this device id so the
+    // dispatcher dashboard sees which phones received the broadcast.
+    final alertId = payload['id'];
+    if (alertId is int) {
+      BackendService().ackGasAlert(alertId);
+    } else if (alertId is String) {
+      final parsed = int.tryParse(alertId);
+      if (parsed != null) BackendService().ackGasAlert(parsed);
+    }
+  }
+
+  void _handleGasResolved(Map<String, dynamic> payload) {
+    final sensorId = payload['sensorId']?.toString();
+    if (sensorId == null) return;
+    setState(() {
+      _activeGasAlerts.removeWhere((a) => a['sensorId'] == sensorId);
+    });
+    if (_activeGasAlerts.isEmpty) {
+      try {
+        _gasAudioPlayer.stop();
+      } catch (_) {}
+    }
+  }
+
+  void _dismissGasAlert(Map<String, dynamic> alert) {
+    setState(() {
+      _activeGasAlerts.remove(alert);
+    });
+    if (_activeGasAlerts.isEmpty) {
+      try {
+        _gasAudioPlayer.stop();
+      } catch (_) {}
+    }
+  }
+
+  Widget _buildGasAlertBanner(Map<String, dynamic> alert) {
+    final sensorType = alert['sensorType']?.toString() ?? 'GAS';
+    final location = (alert['locationName'] ?? alert['location'] ?? 'Unknown')
+        .toString();
+    final value = alert['valuePpm'];
+    final threshold = alert['threshold'];
+    final valueText = value is num ? value.toStringAsFixed(0) : '$value';
+    final thresholdText =
+        threshold is num ? threshold.toStringAsFixed(0) : '$threshold';
+    return Container(
+      key: ValueKey('gas-${alert['sensorId']}'),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.shade900,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade300, width: 1.5),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 10),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'GAS ALERT',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$location: $sensorType at $valueText ppm '
+                  '(threshold $thresholdText ppm).',
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Evacuate the area immediately.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                if (BackendService().deviceLabel != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Received on ${BackendService().deviceLabel}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+            onPressed: () => _dismissGasAlert(alert),
+          ),
+        ],
+      ),
+    );
   }
 
   void _advanceDemo() async {
@@ -565,6 +726,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               AppSpacing.md,
                             ),
                             child: _buildAlertBanner(),
+                          ),
+
+                        // Gas alert banners (one per active gas alert)
+                        if (_activeGasAlerts.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.lg,
+                              0,
+                              AppSpacing.lg,
+                              AppSpacing.md,
+                            ),
+                            child: Column(
+                              children: _activeGasAlerts
+                                  .map((alert) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: AppSpacing.sm,
+                                        ),
+                                        child: _buildGasAlertBanner(alert),
+                                      ))
+                                  .toList(),
+                            ),
                           ),
 
                         // SMS pre-alert banner (conditional)
@@ -1284,6 +1466,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 vertical: AppSpacing.md,
               ),
               children: [
+                _drawerTile(
+                  icon: Icons.local_fire_department,
+                  label: 'Switch to Gas Mode',
+                  onTap: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('hydralis_mode', 'gas');
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GasDashboardScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _drawerTile(
+                  icon: Icons.swap_horiz,
+                  label: 'Choose Mode',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ModeSelectScreen(),
+                      ),
+                    );
+                  },
+                ),
                 _drawerTile(
                   icon: Icons.person_outline,
                   label: 'Profile Settings',

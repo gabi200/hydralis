@@ -1,4 +1,4 @@
-export type UserRole = "dispatcher" | "industrial" | "admin";
+export type UserRole = "dispatcher" | "industrial" | "gas" | "admin";
 
 export const useRole = () => {
   const currentRole = useState<UserRole>("user-role", () => "dispatcher");
@@ -9,6 +9,7 @@ export const useRole = () => {
 
   const isDispatcher = computed(() => currentRole.value === "dispatcher");
   const isIndustrial = computed(() => currentRole.value === "industrial");
+  const isGas = computed(() => currentRole.value === "gas");
   const isAdmin = computed(() => currentRole.value === "admin");
 
   const roleLabel = computed(() => {
@@ -17,6 +18,8 @@ export const useRole = () => {
         return "Dispatcher";
       case "industrial":
         return "Industrial";
+      case "gas":
+        return "Gas Operator";
       case "admin":
         return "Administrator";
     }
@@ -28,6 +31,8 @@ export const useRole = () => {
         return "mdi:shield-alert";
       case "industrial":
         return "mdi:factory";
+      case "gas":
+        return "mdi:gas-cylinder";
       case "admin":
         return "mdi:cog";
     }
@@ -38,6 +43,7 @@ export const useRole = () => {
     setRole,
     isDispatcher,
     isIndustrial,
+    isGas,
     isAdmin,
     roleLabel,
     roleIcon,

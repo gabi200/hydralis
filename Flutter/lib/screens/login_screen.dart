@@ -5,6 +5,7 @@ import '../widgets/custom_button.dart';
 import '../widgets/auth_toggle.dart';
 import 'signup_screen.dart';
 import 'dashboard_screen.dart';
+import 'mode_select_screen.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -66,7 +67,7 @@ class LoginScreen extends StatelessWidget {
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const DashboardScreen(),
+                          builder: (context) => const ModeSelectScreen(),
                         ),
                       );
                     },

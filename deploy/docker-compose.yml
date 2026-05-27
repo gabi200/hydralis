@@ -1,0 +1,60 @@
+# Hydralis self-hosting stack.
+#
+# Usage:
+#   cd deploy
+#   cp .env.example .env   # then edit values
+#   docker compose pull
+#   docker compose up -d --build
+#
+# Caddy auto-issues a Let's Encrypt TLS certificate for HYDRALIS_DOMAIN
+# and proxies HTTP + WebSocket upgrades to the FastAPI backend.
+
+services:
+  backend:
+    build:
+      context: ../copernicus-flood-backend
+    container_name: hydralis-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      ENVIRONMENT: production
+      DATABASE_PATH: /data/hydralis.db
+      DEMO_MODE: "${DEMO_MODE:-true}"
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in .env}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      CDSE_CLIENT_ID: "${CDSE_CLIENT_ID:-}"
+      CDSE_CLIENT_SECRET: "${CDSE_CLIENT_SECRET:-}"
+      EFAS_WMS_TOKEN: "${EFAS_WMS_TOKEN:-}"
+      REQUEST_TIMEOUT_SECONDS: "${REQUEST_TIMEOUT_SECONDS:-45}"
+    volumes:
+      - backend_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: hydralis-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HYDRALIS_DOMAIN: "${HYDRALIS_DOMAIN:?set HYDRALIS_DOMAIN in .env}"
+      HYDRALIS_TLS_EMAIL: "${HYDRALIS_TLS_EMAIL:-admin@example.com}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend_data:
+  caddy_data:
+  caddy_config:
