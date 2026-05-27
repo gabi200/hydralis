@@ -7,6 +7,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 
 import '../services/backend_service.dart';
+import '../widgets/alarm_overlay.dart';
 import 'mode_select_screen.dart';
 
 class GasDashboardScreen extends StatefulWidget {
@@ -28,6 +29,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> {
   int _alertCount = 0;
   bool _loading = true;
   Timer? _pollTimer;
+  OverlayEntry? _activeAlarm;
 
   @override
   void initState() {
@@ -56,6 +58,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> {
     _gasSub?.cancel();
     _eventSub?.cancel();
     _audio.dispose();
+    _activeAlarm?.remove();
+    _activeAlarm = null;
     super.dispose();
   }
 
@@ -120,15 +124,37 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> {
     final location = (payload['locationName'] ?? payload['location'] ?? '')
         .toString();
     final value = payload['valuePpm'];
-    final spokenValue = value is num ? value.toStringAsFixed(0) : '$value';
-    _tts.speak(
-      'Gas alert at $location. $sensorType reading $spokenValue parts per million. Evacuate the area immediately.',
+    final threshold = payload['threshold'];
+    final alarmPayload = AlarmPayload(
+      title: 'GAS ALERT',
+      severity: 'CRITICAL',
+      location: location,
+      subtitle: payload['sensorName']?.toString(),
+      sensorType: sensorType,
+      valuePpm: value is num ? value : null,
+      threshold: threshold is num ? threshold : null,
+      message: 'Evacuate the area immediately and notify dispatch.',
+      source: 'gas',
+      receivedOn: BackendService().deviceLabel,
     );
-    try {
-      _audio.stop();
-      _audio.setReleaseMode(ReleaseMode.loop);
-      _audio.play(AssetSource('alarm.mp3')).catchError((_) {});
-    } catch (_) {}
+    _showAlarmOverlay(alarmPayload);
+  }
+
+  void _showAlarmOverlay(AlarmPayload payload) {
+    _activeAlarm?.remove();
+    final entry = OverlayEntry(
+      builder: (context) => AlarmOverlay(
+        payload: payload,
+        onAcknowledge: () {
+          _activeAlarm?.remove();
+          _activeAlarm = null;
+        },
+      ),
+    );
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    overlay.insert(entry);
+    _activeAlarm = entry;
   }
 
   Future<void> _switchMode() async {

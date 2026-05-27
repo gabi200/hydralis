@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dashboard_screen.dart';
 import 'gas_dashboard_screen.dart';
+import 'home_screen.dart';
 
 class ModeSelectScreen extends StatelessWidget {
   const ModeSelectScreen({super.key});
@@ -11,10 +12,18 @@ class ModeSelectScreen extends StatelessWidget {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('hydralis_mode', mode);
     if (!context.mounted) return;
-    final next = mode == 'gas'
-        ? const GasDashboardScreen()
-        : const DashboardScreen();
-    Navigator.push(context, MaterialPageRoute(builder: (_) => next));
+    final Widget next;
+    if (mode == 'resident') {
+      next = const HomeScreen();
+    } else if (mode == 'gas') {
+      next = const GasDashboardScreen();
+    } else {
+      next = const DashboardScreen();
+    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => next),
+    );
   }
 
   @override
@@ -55,18 +64,27 @@ class ModeSelectScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     _ModeTile(
-                      title: 'Flood Monitoring',
+                      title: 'Resident',
                       subtitle:
-                          'Live water levels, dispatcher alerts, evacuation routes, SOS.',
+                          'See your building, live sensor status and get screaming alerts the moment something goes wrong.',
+                      icon: Icons.apartment_rounded,
+                      color: const Color(0xFF0EA5E9),
+                      onTap: () => _openMode(context, 'resident'),
+                    ),
+                    const SizedBox(height: 16),
+                    _ModeTile(
+                      title: 'Field Worker',
+                      subtitle:
+                          'Live water levels, dispatcher alerts, evacuation routes, SOS for on-site workers.',
                       icon: Icons.water,
                       color: const Color(0xFF2C74FF),
                       onTap: () => _openMode(context, 'flood'),
                     ),
                     const SizedBox(height: 16),
                     _ModeTile(
-                      title: 'Gas Safety',
+                      title: 'Gas Operator',
                       subtitle:
-                          'CH4 / CO / LPG sensor readings and instant area-wide gas alerts.',
+                          'Sensor-by-sensor CH4 / CO / LPG view for maintenance and dispatch staff.',
                       icon: Icons.local_fire_department,
                       color: const Color(0xFFEF4444),
                       onTap: () => _openMode(context, 'gas'),

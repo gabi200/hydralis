@@ -7,6 +7,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/backend_service.dart';
 import '../theme.dart';
+import '../widgets/alarm_overlay.dart';
 import 'alert_screen.dart';
 import 'gas_dashboard_screen.dart';
 import 'mode_select_screen.dart';
@@ -46,6 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Active gas alerts shown as banners until resolved or dismissed.
   final List<Map<String, dynamic>> _activeGasAlerts = [];
   final AudioPlayer _gasAudioPlayer = AudioPlayer();
+  OverlayEntry? _activeAlarm;
 
   // Simulated movement state
   LatLng _workerPosition = const LatLng(45.4353, 28.0080);
@@ -214,6 +216,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _wsSubscription?.cancel();
     _gasSubscription?.cancel();
     _gasAudioPlayer.dispose();
+    _activeAlarm?.remove();
+    _activeAlarm = null;
     super.dispose();
   }
 
@@ -225,23 +229,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _activeGasAlerts.add(payload);
     });
 
-    final sensorType = payload['sensorType']?.toString() ?? 'gas';
-    final location = (payload['locationName'] ?? payload['location'] ?? '')
-        .toString();
     final value = payload['valuePpm'];
-    final spokenValue = value is num ? value.toStringAsFixed(0) : '$value';
-    final spoken =
-        'Gas alert at $location. $sensorType reading $spokenValue parts per million. Evacuate the area immediately.';
-    _flutterTts.speak(spoken);
-
-    try {
-      _gasAudioPlayer.stop();
-      _gasAudioPlayer.setReleaseMode(ReleaseMode.loop);
-      // Optional siren asset — silent fallback if not bundled.
-      _gasAudioPlayer.play(AssetSource('alarm.mp3')).catchError((_) {});
-    } catch (_) {
-      // ignore audio failures
-    }
+    final threshold = payload['threshold'];
+    final alarmPayload = AlarmPayload(
+      title: 'GAS ALERT',
+      severity: 'CRITICAL',
+      location: (payload['locationName'] ?? payload['location'] ?? 'Unknown')
+          .toString(),
+      sensorType: payload['sensorType']?.toString(),
+      valuePpm: value is num ? value : null,
+      threshold: threshold is num ? threshold : null,
+      message: 'Evacuate the area immediately and call emergency services.',
+      source: 'gas',
+      receivedOn: BackendService().deviceLabel,
+    );
+    _showAlarmOverlay(alarmPayload);
 
     // Automatically acknowledge the alert with this device id so the
     // dispatcher dashboard sees which phones received the broadcast.
@@ -252,6 +254,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final parsed = int.tryParse(alertId);
       if (parsed != null) BackendService().ackGasAlert(parsed);
     }
+  }
+
+  void _showAlarmOverlay(AlarmPayload payload) {
+    _activeAlarm?.remove();
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    final entry = OverlayEntry(
+      builder: (context) => AlarmOverlay(
+        payload: payload,
+        onAcknowledge: () {
+          _activeAlarm?.remove();
+          _activeAlarm = null;
+        },
+      ),
+    );
+    overlay.insert(entry);
+    _activeAlarm = entry;
   }
 
   void _handleGasResolved(Map<String, dynamic> payload) {

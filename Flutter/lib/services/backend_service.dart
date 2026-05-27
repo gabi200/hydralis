@@ -23,11 +23,14 @@ class BackendService {
   String? _userName;
   String? _deviceId;
   String? _deviceLabel;
+  String? _selectedBuildingId;
   WebSocketChannel? _channel;
   Timer? _heartbeatTimer;
 
   String? get deviceId => _deviceId;
   String? get deviceLabel => _deviceLabel;
+  String? get selectedBuildingId => _selectedBuildingId;
+  String? get userName => _userName;
 
   // Stream controller to broadcast events from the WebSocket
   final _eventController = StreamController<Map<String, dynamic>>.broadcast();
@@ -48,8 +51,75 @@ class BackendService {
   Future<void> initialize() async {
     await _authenticateDummyUser();
     await _ensureGasDeviceRegistered();
+    await _loadSelectedBuilding();
     _connectWebSocket();
     _startHeartbeat();
+  }
+
+  Future<void> _loadSelectedBuilding() async {
+    final prefs = await SharedPreferences.getInstance();
+    _selectedBuildingId = prefs.getString('hydralis_building_id');
+  }
+
+  Future<void> setSelectedBuilding(String? buildingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    _selectedBuildingId = buildingId;
+    if (buildingId == null) {
+      await prefs.remove('hydralis_building_id');
+    } else {
+      await prefs.setString('hydralis_building_id', buildingId);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchBuildings() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$apiV1Url/gas/buildings'),
+        headers: _token != null ? {"Authorization": "Bearer $_token"} : {},
+      );
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      return (data['buildings'] as List).cast<Map<String, dynamic>>();
+    } catch (e) {
+      print('Fetch buildings error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchSensorsForBuilding(
+    String buildingId,
+  ) async {
+    try {
+      final res = await http.get(
+        Uri.parse('$apiV1Url/gas/sensors'),
+        headers: _token != null ? {"Authorization": "Bearer $_token"} : {},
+      );
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      final list = (data['sensors'] as List).cast<Map<String, dynamic>>();
+      return list.where((s) => s['buildingId'] == buildingId).toList();
+    } catch (e) {
+      print('Fetch sensors error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchGasAlerts({bool? active}) async {
+    try {
+      final uri = Uri.parse('$apiV1Url/gas/alerts').replace(
+        queryParameters: active == null ? null : {'active': '$active'},
+      );
+      final res = await http.get(
+        uri,
+        headers: _token != null ? {"Authorization": "Bearer $_token"} : {},
+      );
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      return (data['alerts'] as List).cast<Map<String, dynamic>>();
+    } catch (e) {
+      print('Fetch alerts error: $e');
+      return [];
+    }
   }
 
   Future<void> _ensureGasDeviceRegistered() async {

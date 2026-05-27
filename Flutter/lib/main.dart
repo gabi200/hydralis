@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/dashboard_screen.dart';
 import 'screens/gas_dashboard_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/mode_select_screen.dart';
 import 'theme.dart';
 
@@ -48,7 +49,9 @@ class _ModeBootstrapState extends State<_ModeBootstrap> {
     final mode = prefs.getString('hydralis_mode');
     if (!mounted) return;
     setState(() {
-      if (mode == 'flood') {
+      if (mode == 'resident') {
+        _next = const HomeScreen();
+      } else if (mode == 'flood') {
         _next = const DashboardScreen();
       } else if (mode == 'gas') {
         _next = const GasDashboardScreen();
