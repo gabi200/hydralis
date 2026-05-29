@@ -1,7 +1,7 @@
 export type UserRole = "dispatcher" | "industrial" | "gas" | "admin";
 
 export const useRole = () => {
-  const currentRole = useState<UserRole>("user-role", () => "dispatcher");
+  const currentRole = useState<UserRole>("user-role", () => "gas");
 
   const setRole = (role: UserRole) => {
     currentRole.value = role;

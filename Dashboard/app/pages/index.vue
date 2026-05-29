@@ -113,26 +113,27 @@
         <div>
           <div class="eyebrow reveal-up">
             <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>CASSINI Hackathon | Space for Water</span>
+            <span>Real-time Gas Safety Monitoring</span>
           </div>
 
           <h1
             class="hero-title text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.08] pb-1 mt-6 reveal-up"
             style="--delay: 80ms"
           >
-            Flood Early Warning
-            <span class="hero-highlight">Command System</span>
+            Gas Leak Early Warning
+            <span class="hero-highlight">&amp; Instant Response</span>
           </h1>
 
           <p
             class="text-base sm:text-lg lg:text-xl text-(--hint-text) max-w-2xl mt-6 leading-relaxed reveal-up"
             style="--delay: 140ms"
           >
-            Real-time flood monitoring, coordinated dispatch, and citizen
-            routing built on
-            <strong class="text-(--label-text)">Copernicus</strong>
-            Earth Observation and
-            <strong class="text-(--label-text)">Galileo</strong> GNSS.
+            Real-time monitoring of
+            <strong class="text-(--label-text)">methane</strong>,
+            <strong class="text-(--label-text)">carbon monoxide</strong>, and
+            <strong class="text-(--label-text)">LPG</strong> — with multi-phone
+            screaming alerts that reach everyone the moment levels cross a safe
+            threshold.
           </p>
 
           <div
@@ -144,7 +145,7 @@
                 size="lg"
                 class="rounded-full px-8 cta-gradient text-white shadow-xl shadow-sky-500/25 border-0 h-12 text-base"
               >
-                <Icon name="mdi:shield-alert" class="h-5 w-5 mr-2" />
+                <Icon name="mdi:gas-cylinder" class="h-5 w-5 mr-2" />
                 Access Dashboard
               </Button>
             </CustomLink>
@@ -197,10 +198,10 @@
               <p
                 class="text-xs font-semibold uppercase tracking-[0.12em] text-sky-500"
               >
-                Live command preview
+                Live monitoring preview
               </p>
               <h2 class="text-2xl font-bold hero-title mt-2">
-                Response Snapshot
+                Building Snapshot
               </h2>
             </div>
             <Badge
@@ -285,13 +286,13 @@
       <div class="max-w-6xl mx-auto">
         <div class="text-center mb-12 sm:mb-14 reveal-up">
           <h2 class="hero-title text-3xl sm:text-4xl font-bold tracking-tight">
-            Complete Flood Response Platform
+            Complete Gas Safety Platform
           </h2>
           <p
             class="text-base sm:text-lg text-(--hint-text) max-w-2xl mx-auto mt-4"
           >
-            One clean control layer, from first anomaly detection to safe-route
-            guidance.
+            One clean console, from the first abnormal reading to a silenced,
+            resolved alert.
           </p>
         </div>
 
@@ -303,7 +304,7 @@
         >
           <div
             v-for="(feature, index) in featureCards"
-            :key="feature.titleKey"
+            :key="feature.title"
             class="card-spotlight-shell reveal-up h-full"
             :class="feature.spanClass"
             :style="{ '--delay': `${100 + index * 90}ms` }"
@@ -342,10 +343,10 @@
                   <h3
                     class="text-xl font-bold text-(--label-text) mt-5 mb-2 hero-title"
                   >
-                    {{ t(feature.titleKey) }}
+                    {{ feature.title }}
                   </h3>
                   <p class="text-sm text-(--hint-text) leading-relaxed">
-                    {{ t(feature.descriptionKey) }}
+                    {{ feature.description }}
                   </p>
                 </div>
               </Card>
@@ -355,7 +356,7 @@
       </div>
     </section>
 
-    <section id="satellite" class="py-16 sm:py-20 px-6">
+    <section id="sensors" class="py-16 sm:py-20 px-6">
       <div
         class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[0.92fr_1.08fr] gap-6 sm:gap-8"
       >
@@ -364,17 +365,17 @@
             <p
               class="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-500 mb-3"
             >
-              Space-enabled reliability
+              Built for life-safety
             </p>
             <h2
               class="hero-title text-3xl sm:text-4xl font-bold tracking-tight mb-4"
             >
-              Powered by the EU Space Stack
+              Coverage for the gases that matter
             </h2>
             <p class="text-base sm:text-lg text-(--hint-text) leading-relaxed">
-              Hydralis combines satellite observation, high-precision
-              positioning, and local cartography so teams can move from
-              detection to evacuation with confidence.
+              Hydralis watches the three gases behind most building incidents —
+              combustible methane and LPG, and toxic carbon monoxide — with
+              thresholds tuned to recognised safety limits.
             </p>
           </div>
 
@@ -402,7 +403,7 @@
           @mouseleave="onSpaceGridMouseLeave"
         >
           <div
-            v-for="(item, index) in spaceStack"
+            v-for="(item, index) in sensorTypes"
             :key="item.title"
             class="card-spotlight-shell reveal-up h-full"
             :class="item.spanClass"
@@ -594,9 +595,9 @@
         <div
           class="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm text-(--hint-text) flex-wrap justify-center"
         >
-          <span>CASSINI Hackathon 2026</span>
+          <span>Gas Safety Monitoring</span>
           <span class="hidden sm:inline">|</span>
-          <span>Copernicus + Galileo</span>
+          <span>CH₄ · CO · LPG</span>
           <span class="hidden sm:inline">|</span>
           <span>Built in Bucharest, Romania</span>
         </div>
@@ -607,8 +608,6 @@
 
 <script setup lang="ts">
 const colorMode = useColorMode();
-const { t } = useI18n();
-const { plans } = useSubscription();
 
 const heroSection = ref<HTMLElement | null>(null);
 const heroGridContainer = ref<HTMLElement | null>(null);
@@ -870,32 +869,32 @@ const onPricingGridMouseLeave = () => {
 
 const navLinks = [
   { id: "features", label: "Features" },
-  { id: "satellite", label: "Space Stack" },
+  { id: "sensors", label: "Sensors" },
   { id: "pricing", label: "Pricing" },
   { id: "about", label: "About", href: "/about" },
   { id: "contact", label: "Contact", href: "/contact" },
 ];
 
 const quickStats = [
-  { value: "<4 min", label: "Alert latency", icon: "mdi:clock-fast" },
-  { value: "24/7", label: "Command readiness", icon: "mdi:shield-check" },
-  { value: "EU", label: "Space-powered coverage", icon: "mdi:earth" },
+  { value: "<2s", label: "Alert latency", icon: "mdi:clock-fast" },
+  { value: "3", label: "Gas types monitored", icon: "mdi:molecule" },
+  { value: "24/7", label: "Continuous monitoring", icon: "mdi:shield-check" },
 ];
 
 const liveEvents = [
   {
-    label: "Siret river threshold exceeded",
-    time: "2m ago",
-    dotClass: "bg-rose-500",
+    label: "Kitchen CH₄ — 1,240 ppm warning",
+    time: "1m ago",
+    dotClass: "bg-amber-500",
   },
   {
-    label: "Safe route refreshed for district north",
-    time: "5m ago",
+    label: "Alarm acknowledged on 3 phones",
+    time: "1m ago",
     dotClass: "bg-cyan-500",
   },
   {
-    label: "Industrial sensor cluster synced",
-    time: "9m ago",
+    label: "Boiler room CO — normal",
+    time: "4m ago",
     dotClass: "bg-emerald-500",
   },
 ];
@@ -904,87 +903,129 @@ const responseFlow = [
   {
     title: "Detect",
     description:
-      "Sentinel imagery and IoT river sensors surface anomalies before critical flooding.",
-    icon: "mdi:satellite-variant",
+      "Sensors continuously sample methane, carbon monoxide, and LPG and stream live readings to the console.",
+    icon: "mdi:radar",
   },
   {
-    title: "Coordinate",
+    title: "Alert",
     description:
-      "Emergency teams align alerts, priorities, and dispatch decisions from one command view.",
-    icon: "mdi:account-group",
+      "The moment a reading crosses threshold, every paired phone screams a full-screen siren — nobody misses it.",
+    icon: "mdi:bullhorn",
   },
   {
-    title: "Evacuate",
+    title: "Resolve",
     description:
-      "Citizens receive routing to safe locations with Galileo-powered geolocation.",
-    icon: "mdi:map-marker-path",
+      "Responders acknowledge, ventilate, and clear the alert from one shared console with a full audit trail.",
+    icon: "mdi:check-decagram",
   },
 ];
 
 const featureCards = [
   {
-    titleKey: "landing.feature_alerts",
-    descriptionKey: "landing.feature_alerts_desc",
-    icon: "mdi:bell-alert",
+    title: "Real-time gas detection",
+    description:
+      "Live CH₄, CO, and LPG readings per sensor, classified normal / warning / critical against configurable thresholds.",
+    icon: "mdi:fire",
     spanClass: "md:col-span-3",
     iconTone: "text-rose-500 bg-rose-500/12",
   },
   {
-    titleKey: "landing.feature_map",
-    descriptionKey: "landing.feature_map_desc",
-    icon: "mdi:map-marker-check",
+    title: "Multi-phone screaming alerts",
+    description:
+      "A threshold breach triggers a full-screen siren on every paired device until someone acknowledges it.",
+    icon: "mdi:cellphone-sound",
     spanClass: "md:col-span-3",
-    iconTone: "text-emerald-500 bg-emerald-500/12",
+    iconTone: "text-amber-500 bg-amber-500/12",
   },
   {
-    titleKey: "landing.feature_satellite",
-    descriptionKey: "landing.feature_satellite_desc",
-    icon: "mdi:satellite-variant",
+    title: "Live readings & alert history",
+    description:
+      "Per-sensor trend charts and a complete alert history so you can review every event and response time.",
+    icon: "mdi:chart-line",
     spanClass: "md:col-span-4",
     iconTone: "text-sky-500 bg-sky-500/12",
   },
   {
-    titleKey: "landing.feature_industrial",
-    descriptionKey: "landing.feature_industrial_desc",
-    icon: "mdi:factory",
+    title: "Connected devices",
+    description:
+      "See which phones are paired and who acknowledged each alert — response accountability in one place.",
+    icon: "mdi:cellphone-link",
     spanClass: "md:col-span-2",
-    iconTone: "text-amber-500 bg-amber-500/12",
+    iconTone: "text-emerald-500 bg-emerald-500/12",
   },
 ];
 
 const spacePoints = [
-  "Sentinel-1 SAR for flood contour detection during cloud cover.",
-  "Sentinel-2 MSI for NDWI-based water body classification.",
-  "Galileo GNSS for high-confidence citizen guidance and dispatch tracking.",
+  "Combustible-gas thresholds aligned with %LEL safety margins for CH₄ and LPG.",
+  "Carbon-monoxide alerting tuned to health exposure limits — warning at 35 ppm.",
+  "Offline-sensor detection so a dead node never hides a real leak.",
 ];
 
-const spaceStack = [
+const sensorTypes = [
   {
-    title: "Copernicus Sentinel",
+    title: "Methane (CH₄)",
     description:
-      "Continuous EO data for flood surveillance, trend analysis, and anomaly detection.",
-    icon: "mdi:satellite-variant",
+      "Combustible-gas detection for kitchens, boiler rooms, and gas mains. Warning at 1,000 ppm, critical at 5,000 ppm.",
+    icon: "mdi:fire",
     gradientClass: "stack-gradient-sentinel",
     shadowClass: "shadow-sky-500/20",
     spanClass: "",
   },
   {
-    title: "Galileo GNSS",
+    title: "Carbon Monoxide (CO)",
     description:
-      "Accurate geolocation for routing vulnerable citizens and field responders safely.",
-    icon: "mdi:satellite-uplink",
+      "Toxic-gas detection for living spaces and garages. Warning at 35 ppm, critical at 200 ppm.",
+    icon: "mdi:skull-outline",
     gradientClass: "stack-gradient-galileo",
     shadowClass: "shadow-cyan-500/25",
     spanClass: "",
   },
   {
-    title: "OpenStreetMap",
+    title: "LPG & Multi-gas",
     description:
-      "Detailed street and building context for evacuation corridors and safe zones.",
-    icon: "mdi:map",
+      "Propane / butane leak detection plus combined multi-gas nodes for full-building coverage in one device.",
+    icon: "mdi:gas-cylinder",
     gradientClass: "stack-gradient-osm",
     shadowClass: "shadow-emerald-500/20",
     spanClass: "sm:col-span-2",
+  },
+];
+
+const plans = [
+  {
+    tier: "starter",
+    name: "Single Site",
+    features: [
+      "Up to 10 gas sensors",
+      "Multi-phone screaming alerts",
+      "Live readings & alert history",
+      "Connected device management",
+      "Email support",
+    ],
+  },
+  {
+    tier: "operations",
+    name: "Multi-Building",
+    features: [
+      "Everything in Single Site",
+      "Up to 100 sensors across buildings",
+      "Per-building grouping & status",
+      "Configurable thresholds",
+      "Audit logs & response tracking",
+      "Priority support",
+    ],
+  },
+  {
+    tier: "enterprise",
+    name: "Enterprise / Critical Site",
+    features: [
+      "Everything in Multi-Building",
+      "Unlimited sensors & devices",
+      "Custom SLA & integration support",
+      "Role customization",
+      "Multi-site operations",
+      "Dedicated account manager",
+    ],
   },
 ];
 
@@ -1002,12 +1043,12 @@ const planDiscussionLabel = (tier: string) => {
 
 const planDiscussionCopy = (tier: string) => {
   if (tier === "starter") {
-    return "Best for early deployments and first flood-response validation.";
+    return "Best for a single building getting started with gas-safety monitoring.";
   }
   if (tier === "operations") {
-    return "Most teams choose this path for live city operations and integrations.";
+    return "Most teams choose this for multi-building, multi-phone coverage.";
   }
-  return "For multi-site critical infrastructure and advanced governance needs.";
+  return "For critical sites and portfolios that need full coverage and governance.";
 };
 
 const scrollToSection = (sectionId: string) => {
